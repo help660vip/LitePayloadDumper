@@ -18,14 +18,19 @@ type PartitionItem struct {
 	Operations     int
 	NeedsSource    bool
 	UnsupportedOps []string
+	ArchivePath    string
 }
 
 type PackageDetails struct {
-	Path       string
-	FileSize   int64
-	Remote     bool
-	Partitions []PartitionItem
-	Info       DeviceInfo
+	Path           string
+	OriginalPath   string
+	FileSize       int64
+	Remote         bool
+	Mode           packageMode
+	ArchiveEntries int
+	TempPath       string
+	Partitions     []PartitionItem
+	Info           DeviceInfo
 }
 
 type ExtractionProgress struct {
@@ -46,13 +51,64 @@ type ExtractionProgress struct {
 var safePartitionName = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 func inspectPackage(path string) (*PackageDetails, error) {
-	source, err := openPackageSource(context.Background(), path)
+	return inspectPackageContext(context.Background(), path, nil)
+}
+
+func inspectPackageContext(ctx context.Context, input string, onProgress func(InspectionProgress)) (*PackageDetails, error) {
+	originalPath := input
+	remote := isRemoteInput(input)
+	cachePath := ""
+	remoteSize := int64(0)
+	if remote && isTGZInput(input) {
+		var err error
+		cachePath, remoteSize, err = cacheRemoteTGZ(ctx, input, onProgress)
+		if err != nil {
+			return nil, err
+		}
+		input = cachePath
+	}
+	cleanupCache := func() {
+		if cachePath != "" {
+			_ = os.Remove(cachePath)
+		}
+	}
+	finish := func(details *PackageDetails) *PackageDetails {
+		details.OriginalPath = originalPath
+		details.Remote = remote
+		applyArchiveFilenameMetadata(&details.Info, originalPath)
+		if cachePath != "" {
+			details.Path = cachePath
+			details.TempPath = cachePath
+			details.FileSize = remoteSize
+		}
+		return details
+	}
+
+	source, err := openPackageSource(ctx, input)
 	if err != nil {
+		cleanupCache()
 		return nil, err
 	}
 	defer source.Close()
 	pl := source.payload
 	metadataInfo := inspectZipMetadata(source.zipReader)
+	if source.mode == packageModeZIP {
+		items := zipPartitionItems(source.zipReader)
+		metadataInfo.PackageType = "线刷 ZIP"
+		metadataInfo.PartitionCount = len(items)
+		return finish(&PackageDetails{
+			Path: input, FileSize: source.size, Mode: source.mode,
+			ArchiveEntries: len(source.zipReader.File), Partitions: items, Info: metadataInfo,
+		}), nil
+	}
+	if source.mode == packageModeTGZ {
+		details, err := inspectTGZPackage(ctx, input, source.size, onProgress)
+		if err != nil {
+			cleanupCache()
+			return nil, err
+		}
+		return finish(details), nil
+	}
 
 	parts := pl.Partitions()
 	items := make([]PartitionItem, 0, len(parts))
@@ -81,13 +137,20 @@ func inspectPackage(path string) (*PackageDetails, error) {
 		metadataInfo.BuildDate = formatUnixDate(pl.Manifest().GetMaxTimestamp())
 	}
 
-	return &PackageDetails{
-		Path:       path,
+	return finish(&PackageDetails{
+		Path:       input,
 		FileSize:   source.size,
-		Remote:     isRemoteInput(path),
+		Mode:       source.mode,
 		Partitions: items,
 		Info:       metadataInfo,
-	}, nil
+	}), nil
+}
+
+func (details *PackageDetails) Cleanup() {
+	if details != nil && details.TempPath != "" {
+		_ = os.Remove(details.TempPath)
+		details.TempPath = ""
+	}
 }
 
 func extractPackage(
@@ -96,6 +159,19 @@ func extractPackage(
 	outputDir string,
 	sourceDir string,
 	partitions []string,
+	concurrency int,
+	onProgress func(ExtractionProgress),
+) error {
+	return extractPackageWithItems(ctx, path, outputDir, sourceDir, partitions, nil, concurrency, onProgress)
+}
+
+func extractPackageWithItems(
+	ctx context.Context,
+	path string,
+	outputDir string,
+	sourceDir string,
+	partitions []string,
+	archiveItems []PartitionItem,
 	concurrency int,
 	onProgress func(ExtractionProgress),
 ) error {
@@ -115,10 +191,16 @@ func extractPackage(
 
 	source, err := openPackageSource(ctx, path)
 	if err != nil {
-		return fmt.Errorf("重新打开 Payload 失败：%w", err)
+		return fmt.Errorf("重新打开固件失败：%w", err)
 	}
 	defer source.Close()
 	pl := source.payload
+	if source.mode == packageModeZIP {
+		return extractZIPImages(ctx, source.zipReader, absOutput, partitions, concurrency, onProgress)
+	}
+	if source.mode == packageModeTGZ {
+		return extractTGZImages(ctx, path, absOutput, partitions, archiveItems, onProgress)
+	}
 
 	selected := make(map[string]bool, len(partitions))
 	for _, name := range partitions {

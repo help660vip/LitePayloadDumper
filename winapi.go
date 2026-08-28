@@ -344,8 +344,8 @@ func showMessage(owner uintptr, title, text string, flags uint32) int {
 
 func chooseInputFile(owner uintptr) string {
 	fileBuffer := make([]uint16, 32768)
-	filter := utf16Buffer("OTA / Payload 文件 (*.zip;*.bin)\x00*.zip;*.bin\x00全部文件 (*.*)\x00*.*\x00")
-	title := wstr("选择 OTA ZIP 或 payload.bin")
+	filter := utf16Buffer("固件包 (*.zip;*.bin;*.tgz;*.tar.gz)\x00*.zip;*.bin;*.tgz;*.tar.gz\x00全部文件 (*.*)\x00*.*\x00")
+	title := wstr("选择 OTA / 线刷 ZIP、TGZ 或 payload.bin")
 	of := openFileName{
 		Owner:       owner,
 		Filter:      &filter[0],

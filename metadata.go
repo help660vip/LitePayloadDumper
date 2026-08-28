@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net/url"
 	"path"
 	"regexp"
 	"strconv"
@@ -38,6 +39,7 @@ type metadataValue struct {
 }
 
 var xmlPropertyPattern = regexp.MustCompile("(?is)name\\s*=\\s*['\"]([^'\"]+)['\"][^>]{0,500}?value\\s*=\\s*['\"]([^'\"]*)['\"]")
+var xiaomiFastbootNamePattern = regexp.MustCompile(`(?i)^([a-z0-9-]+)_images_([^_]+)_([0-9]{8})\.[^_]+_([0-9]+(?:\.[0-9]+)?)_`)
 
 func inspectArchiveMetadata(filename string) DeviceInfo {
 	zr, err := zip.OpenReader(filename)
@@ -115,7 +117,7 @@ func inspectZipMetadata(zr *zip.Reader) DeviceInfo {
 	applyFingerprint(&info, info.Fingerprint)
 	info.Brand = firstNonEmpty(choose("ro.product.brand", "ro.product.system.brand", "product_brand", "brand"), info.Brand)
 	info.Model = firstNonEmpty(choose("ro.product.marketname", "ro.product.product.marketname", "ro.vendor.oplus.market.name", "ro.product.model", "ro.product.system.model", "product_model", "model_name", "model"), info.Model)
-	info.Device = firstToken(firstNonEmpty(choose("ro.product.device", "ro.product.system.device", "ro.build.product", "pre-device", "product_device", "device", "product_name"), info.Device))
+	info.Device = firstToken(firstNonEmpty(choose("ro.product.device", "ro.product.system.device", "ro.build.product", "pre-device", "product_device", "version-product", "board", "device", "product_name"), info.Device))
 	info.Android = firstNonEmpty(choose("ro.build.version.release", "ro.system.build.version.release", "android_version", "android.version", "version.release"), info.Android)
 	info.SDK = choose("post-sdk-level", "ro.build.version.sdk", "ro.system.build.version.sdk", "sdk_level", "sdk")
 	info.SystemVersion = firstNonEmpty(choose("ota_version", "ota.version", "real_version", "real.version", "rom_version", "version_name", "ro.build.display.id", "ro.system.build.display.id", "ro.build.version.incremental", "post-build-incremental"), info.SystemVersion)
@@ -133,7 +135,7 @@ func isMetadataCandidate(name string) bool {
 	if base == "payload.bin" || strings.HasSuffix(base, ".img") || strings.HasSuffix(base, ".dat") {
 		return false
 	}
-	if name == "meta-inf/com/android/metadata" || base == "metadata" || base == "oplus_metadata" || base == "build.prop" || base == "system-build.prop" || base == "vendor-build.prop" || base == "payload_properties.txt" {
+	if name == "meta-inf/com/android/metadata" || base == "metadata" || base == "oplus_metadata" || base == "android-info.txt" || base == "build.prop" || base == "system-build.prop" || base == "vendor-build.prop" || base == "payload_properties.txt" {
 		return true
 	}
 	if strings.HasSuffix(base, ".prop") || strings.HasSuffix(base, ".properties") {
@@ -173,7 +175,11 @@ func parseMetadataDocument(text string, score int, put func(string, string, int)
 			continue
 		}
 		if index := strings.IndexByte(line, '='); index > 0 {
-			put(line[:index], line[index+1:], score)
+			key := strings.TrimSpace(line[:index])
+			put(key, line[index+1:], score)
+			if strings.HasPrefix(strings.ToLower(key), "require ") {
+				put(strings.TrimSpace(key[len("require "):]), line[index+1:], score)
+			}
 			continue
 		}
 		if index := strings.IndexByte(line, ':'); index > 0 {
@@ -194,6 +200,40 @@ func parseMetadataDocument(text string, score int, put func(string, string, int)
 		if len(match) == 3 {
 			put(html.UnescapeString(match[1]), html.UnescapeString(match[2]), score)
 		}
+	}
+}
+
+func applyArchiveFilenameMetadata(info *DeviceInfo, input string) {
+	if info == nil {
+		return
+	}
+	name := strings.TrimSpace(input)
+	if parsed, err := url.Parse(name); err == nil && parsed.Path != "" {
+		name = parsed.Path
+	}
+	name = path.Base(strings.ReplaceAll(name, "\\", "/"))
+	lower := strings.ToLower(name)
+	for _, suffix := range []string{".tar.gz", ".tgz", ".zip"} {
+		if strings.HasSuffix(lower, suffix) {
+			name = name[:len(name)-len(suffix)]
+			break
+		}
+	}
+	match := xiaomiFastbootNamePattern.FindStringSubmatch(name)
+	if len(match) != 5 {
+		return
+	}
+	if info.Device == "" {
+		info.Device = strings.ToLower(match[1])
+	}
+	if info.SystemVersion == "" {
+		info.SystemVersion = match[2]
+	}
+	if info.BuildDate == "" && len(match[3]) == 8 {
+		info.BuildDate = match[3][:4] + "-" + match[3][4:6] + "-" + match[3][6:]
+	}
+	if info.Android == "" {
+		info.Android = match[4]
 	}
 }
 

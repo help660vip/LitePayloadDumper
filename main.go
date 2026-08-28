@@ -165,7 +165,7 @@ func windowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			return 0
 		case wmClose:
 			if app.busy {
-				if showMessage(hwnd, "确认退出", "正在提取分区。是否取消任务并在清理后退出？", mbYesNo|mbIconQuestion) == idYes {
+				if showMessage(hwnd, "确认退出", "正在处理固件。是否取消任务并在清理后退出？", mbYesNo|mbIconQuestion) == idYes {
 					app.closeAfterCancel = true
 					app.cancelExtraction()
 				}
@@ -176,6 +176,9 @@ func windowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		case wmDestroy:
 			if app.cancel != nil {
 				app.cancel()
+			}
+			if app.details != nil {
+				app.details.Cleanup()
 			}
 			procPostQuitMessage.Call(0)
 			return 0

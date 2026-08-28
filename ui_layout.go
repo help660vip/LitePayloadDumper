@@ -4,8 +4,8 @@ func (app *application) createControls() {
 	child := uint32(wsChild | wsVisible)
 	button := child | wsTabStop | bsPushButton
 	app.titleLabel = createWindow(0, "STATIC", "Payload 分区提取器", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
-	app.subtitleLabel = createWindow(0, "STATIC", "提取 OTA ZIP / payload.bin 分区，并读取设备与系统信息", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
-	app.inputLabel = createWindow(0, "STATIC", "本地固件 / 在线 URL（在线模式仅按需下载所选分区）", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
+	app.subtitleLabel = createWindow(0, "STATIC", "提取 OTA Payload、通用线刷 ZIP / TGZ 镜像，并读取设备与系统信息", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
+	app.inputLabel = createWindow(0, "STATIC", "本地固件 / 在线 URL（ZIP 按需读取；TGZ 会先询问是否整包缓存）", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.inputEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsTabStop|esAutoHScroll, 0, 0, 0, 0, app.hwnd, idInput, app.instance)
 	app.loadButton = createWindow(0, "BUTTON", "读取", button, 0, 0, 0, 0, app.hwnd, idLoad, app.instance)
 	app.browseButton = createWindow(0, "BUTTON", "本地...", button, 0, 0, 0, 0, app.hwnd, idBrowse, app.instance)

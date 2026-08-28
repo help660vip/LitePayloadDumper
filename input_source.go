@@ -15,12 +15,21 @@ import (
 )
 
 type packageSource struct {
+	mode      packageMode
 	payload   *payload.Payload
 	zipReader *zip.Reader
 	size      int64
 	remote    *httpReaderAt
 	zipCloser *zip.ReadCloser
 }
+
+type packageMode string
+
+const (
+	packageModePayload packageMode = "payload"
+	packageModeZIP     packageMode = "zip"
+	packageModeTGZ     packageMode = "tgz"
+)
 
 func (source *packageSource) Close() {
 	if source.payload != nil {
@@ -54,16 +63,45 @@ func openPackageSource(ctx context.Context, input string) (*packageSource, error
 	if stat.IsDir() {
 		return nil, fmt.Errorf("请选择 OTA ZIP 或 payload.bin 文件")
 	}
-	pl, err := payload.Open(input)
+	file, err := os.Open(input)
 	if err != nil {
-		return nil, fmt.Errorf("不是有效的 OTA ZIP / payload.bin：%w", err)
+		return nil, fmt.Errorf("无法读取文件头：%w", err)
 	}
-	source := &packageSource{payload: pl, size: stat.Size()}
-	if zr, zipErr := zip.OpenReader(input); zipErr == nil {
-		source.zipCloser = zr
-		source.zipReader = &zr.Reader
+	var magic [4]byte
+	_, magicErr := io.ReadFull(file, magic[:])
+	file.Close()
+	if magicErr != nil {
+		return nil, fmt.Errorf("文件过小或已损坏：%w", magicErr)
 	}
-	return source, nil
+	if string(magic[:]) == "CrAU" {
+		pl, err := payload.Open(input)
+		if err != nil {
+			return nil, fmt.Errorf("不是有效的 payload.bin：%w", err)
+		}
+		return &packageSource{mode: packageModePayload, payload: pl, size: stat.Size()}, nil
+	}
+	if magic[0] == 'P' && magic[1] == 'K' {
+		zr, err := zip.OpenReader(input)
+		if err != nil {
+			return nil, fmt.Errorf("读取 ZIP 目录失败：%w", err)
+		}
+		source := &packageSource{mode: packageModeZIP, size: stat.Size(), zipCloser: zr, zipReader: &zr.Reader}
+		if findPayloadEntry(&zr.Reader) == nil {
+			return source, nil
+		}
+		pl, err := payload.Open(input)
+		if err != nil {
+			zr.Close()
+			return nil, fmt.Errorf("读取 ZIP 中的 payload.bin 失败：%w", err)
+		}
+		source.mode = packageModePayload
+		source.payload = pl
+		return source, nil
+	}
+	if magic[0] == 0x1f && magic[1] == 0x8b {
+		return &packageSource{mode: packageModeTGZ, size: stat.Size()}, nil
+	}
+	return nil, fmt.Errorf("不是有效的 OTA ZIP、线刷 ZIP、TGZ 或 payload.bin")
 }
 
 func openRemotePackageSource(ctx context.Context, address string) (*packageSource, error) {
@@ -84,7 +122,10 @@ func openRemotePackageSource(ctx context.Context, address string) (*packageSourc
 		if err != nil {
 			return fail(fmt.Errorf("解析在线 payload.bin 失败：%w", err))
 		}
-		return &packageSource{payload: pl, size: reader.Size(), remote: reader}, nil
+		return &packageSource{mode: packageModePayload, payload: pl, size: reader.Size(), remote: reader}, nil
+	}
+	if magic[0] == 0x1f && magic[1] == 0x8b {
+		return fail(fmt.Errorf("远程 TGZ 需要先建立一次本地临时缓存后解析"))
 	}
 	if magic[0] != 'P' || magic[1] != 'K' {
 		return fail(fmt.Errorf("在线文件不是有效的 OTA ZIP 或 payload.bin"))
@@ -95,7 +136,7 @@ func openRemotePackageSource(ctx context.Context, address string) (*packageSourc
 	}
 	entry := findPayloadEntry(zr)
 	if entry == nil {
-		return fail(fmt.Errorf("在线 OTA ZIP 中未找到 payload.bin"))
+		return &packageSource{mode: packageModeZIP, zipReader: zr, size: reader.Size(), remote: reader}, nil
 	}
 	if entry.Method != zip.Store {
 		return fail(fmt.Errorf("在线 OTA 中的 payload.bin 使用了 ZIP 二次压缩，无法只下载所选分区；程序不会自动下载整个固件，请改用本地文件"))
@@ -113,7 +154,15 @@ func openRemotePackageSource(ctx context.Context, address string) (*packageSourc
 	if err != nil {
 		return fail(fmt.Errorf("解析在线 payload.bin 清单失败：%w", err))
 	}
-	return &packageSource{payload: pl, zipReader: zr, size: reader.Size(), remote: reader}, nil
+	return &packageSource{mode: packageModePayload, payload: pl, zipReader: zr, size: reader.Size(), remote: reader}, nil
+}
+
+func isTGZInput(input string) bool {
+	name := strings.ToLower(strings.TrimSpace(input))
+	if parsed, err := url.Parse(name); err == nil && parsed.Path != "" {
+		name = parsed.Path
+	}
+	return strings.HasSuffix(name, ".tgz") || strings.HasSuffix(name, ".tar.gz")
 }
 
 func findPayloadEntry(zr *zip.Reader) *zip.File {

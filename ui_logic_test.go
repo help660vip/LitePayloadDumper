@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestFilterPartitionsByName(t *testing.T) {
 	partitions := []PartitionItem{
@@ -41,6 +44,17 @@ func TestParseThreadCount(t *testing.T) {
 	for _, input := range []string{"", "0", "65", "-1", "abc", "4.5"} {
 		if _, err := parseThreadCount(input); err == nil {
 			t.Fatalf("parseThreadCount(%q) unexpectedly succeeded", input)
+		}
+	}
+}
+
+func TestDefaultOutputDirRemovesTarGZSuffix(t *testing.T) {
+	for _, input := range []string{
+		filepath.Join(t.TempDir(), "fastboot.tar.gz"),
+		"https://example.test/releases/fastboot.tar.gz",
+	} {
+		if got := filepath.Base(defaultOutputDir(input)); got != "fastboot_提取" {
+			t.Fatalf("defaultOutputDir(%q) = %q", input, got)
 		}
 	}
 }

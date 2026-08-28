@@ -63,6 +63,12 @@ func (app *application) handleCommand(id, notification int) {
 
 func (app *application) loadFile(filename string) {
 	filename = strings.TrimSpace(filename)
+	if isRemoteInput(filename) && isTGZInput(filename) {
+		warning := "TGZ 是单一 gzip 串流，没有 ZIP 中央目录，无法随机跳到某个分区。\r\n\r\n解析在线 TGZ 必须完整缓存一次到系统临时目录；之后提取不会再次下载，退出程序时会自动删除缓存。\r\n\r\n是否继续？"
+		if showMessage(app.hwnd, "在线 TGZ 需要完整缓存", warning, mbYesNo|mbIconQuestion) != idYes {
+			return
+		}
+	}
 	if !isRemoteInput(filename) {
 		absolute, err := filepath.Abs(filename)
 		if err != nil {
@@ -75,6 +81,9 @@ func (app *application) loadFile(filename string) {
 	serial := app.loadSerial
 	setText(app.inputEdit, filename)
 	setText(app.outputEdit, defaultOutputDir(filename))
+	if app.details != nil {
+		app.details.Cleanup()
+	}
 	app.details = nil
 	app.partitions = nil
 	app.visiblePartitions = nil
@@ -83,19 +92,56 @@ func (app *application) loadFile(filename string) {
 	sendMessage(app.partitionList, lvmDeleteAllItems, 0, 0)
 	app.setInfo(DeviceInfo{})
 	setText(app.logEdit, "")
-	setText(app.statusLabel, "正在读取 Payload 清单与固件元数据...")
+	setText(app.statusLabel, "正在读取固件目录与元数据...")
 	sendMessage(app.progressBar, pbmSetPos, 0, 0)
 	app.appendLog("开始分析：" + filename)
-	app.setWorking(true, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	app.cancel = cancel
+	app.setWorking(true, true)
+	var progressMu sync.Mutex
+	lastProgress := time.Time{}
+	inspectionProgress := func(progress InspectionProgress) {
+		progressMu.Lock()
+		now := time.Now()
+		shouldPost := lastProgress.IsZero() || now.Sub(lastProgress) >= 120*time.Millisecond || (progress.Total > 0 && progress.Done >= progress.Total)
+		if shouldPost {
+			lastProgress = now
+		}
+		progressMu.Unlock()
+		if !shouldPost {
+			return
+		}
+		app.queueUI(func() {
+			position := 0
+			if progress.Total > 0 {
+				position = int(progress.Done * 1000 / progress.Total)
+			}
+			sendMessage(app.progressBar, pbmSetPos, uintptr(position), 0)
+			if progress.Total > 0 {
+				setText(app.statusLabel, fmt.Sprintf("%s：%s / %s（%.1f%%）", progress.Stage, formatBytes(progress.Done), formatBytes(progress.Total), float64(position)/10))
+			} else {
+				setText(app.statusLabel, fmt.Sprintf("%s：已处理 %s", progress.Stage, formatBytes(progress.Done)))
+			}
+		})
+	}
 
 	go func() {
-		details, err := inspectPackage(filename)
+		details, err := inspectPackageContext(ctx, filename, inspectionProgress)
 		app.queueUI(func() {
 			if serial != app.loadSerial {
 				return
 			}
+			app.cancel = nil
 			app.setWorking(false, false)
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					setText(app.statusLabel, "读取任务已取消，临时缓存已清理。")
+					app.appendLog("读取任务已取消，临时缓存已清理。")
+					if app.closeAfterCancel {
+						procDestroyWindow.Call(app.hwnd)
+					}
+					return
+				}
 				setText(app.statusLabel, "读取失败。")
 				app.appendLog("读取失败：" + err.Error())
 				showMessage(app.hwnd, "读取失败", err.Error(), mbOK|mbIconError)
@@ -105,16 +151,35 @@ func (app *application) loadFile(filename string) {
 			app.partitions = details.Partitions
 			app.populatePartitions()
 			app.setInfo(details.Info)
-			if details.Remote {
+			if details.Mode == packageModeZIP {
+				location := "ZIP"
+				if details.Remote {
+					location = "远程 ZIP"
+				}
+				app.appendLog("检测到" + location + " 不包含 payload.bin，直接按通用 ZIP 模式读取。")
+				app.appendLog(fmt.Sprintf("ZIP 中共 %d 个文件条目，识别到 %d 个镜像分区。", details.ArchiveEntries, len(details.Partitions)))
+			} else if details.Mode == packageModeTGZ {
+				app.appendLog(fmt.Sprintf("TGZ 中共 %d 个文件条目，识别到 %d 个镜像分区。", details.ArchiveEntries, len(details.Partitions)))
+				if details.Remote {
+					app.appendLog("远程 TGZ 已完整缓存一次；提取将复用临时缓存，退出时自动删除。")
+				}
+			} else if details.Remote {
 				app.appendLog("在线按需模式：只读取 ZIP 目录、Payload 清单和所选分区对应的字节段。")
 			}
 			setText(app.statusLabel, fmt.Sprintf("读取完成：共 %d 个分区，固件大小 %s。", len(details.Partitions), formatBytes(uint64(details.FileSize))))
-			app.appendLog(fmt.Sprintf("读取完成：Payload v%d，%d 个分区。", details.Info.PayloadVersion, len(details.Partitions)))
+			if details.Mode == packageModePayload {
+				app.appendLog(fmt.Sprintf("读取完成：Payload v%d，%d 个分区。", details.Info.PayloadVersion, len(details.Partitions)))
+			} else {
+				app.appendLog(fmt.Sprintf("读取完成：%s，%d 个分区。", details.Info.PackageType, len(details.Partitions)))
+			}
 			if details.Info.Fingerprint != "" {
 				app.appendLog("构建指纹：" + details.Info.Fingerprint)
 			}
 			if details.Info.IsDelta {
 				app.appendLog("提示：这是增量 OTA；标记为“需旧镜像”的分区必须提供旧镜像目录。")
+			}
+			if app.closeAfterCancel {
+				procDestroyWindow.Call(app.hwnd)
 			}
 		})
 	}()
@@ -126,7 +191,12 @@ func defaultOutputDir(input string) string {
 	if isRemoteInput(input) {
 		if parsed, err := url.Parse(input); err == nil {
 			name := urlpath.Base(parsed.Path)
-			base = strings.TrimSuffix(name, urlpath.Ext(name))
+			base = name
+			if strings.HasSuffix(strings.ToLower(base), ".tar.gz") {
+				base = base[:len(base)-len(".tar.gz")]
+			} else {
+				base = strings.TrimSuffix(base, urlpath.Ext(base))
+			}
 		}
 		if home, err := os.UserHomeDir(); err == nil {
 			downloads := filepath.Join(home, "Downloads")
@@ -138,7 +208,12 @@ func defaultOutputDir(input string) string {
 			parent, _ = os.Getwd()
 		}
 	} else {
-		base = strings.TrimSuffix(filepath.Base(input), filepath.Ext(input))
+		base = filepath.Base(input)
+		if strings.HasSuffix(strings.ToLower(base), ".tar.gz") {
+			base = base[:len(base)-len(".tar.gz")]
+		} else {
+			base = strings.TrimSuffix(base, filepath.Ext(base))
+		}
 		parent = filepath.Dir(input)
 	}
 	if strings.TrimSpace(base) == "" || base == "." || base == "/" {
@@ -261,7 +336,7 @@ func parseThreadCount(text string) (int, error) {
 
 func (app *application) startExtraction() {
 	if app.busy || app.details == nil {
-		showMessage(app.hwnd, "尚未读取固件", "请先选择 OTA ZIP 或 payload.bin。", mbOK|mbIconInfo)
+		showMessage(app.hwnd, "尚未读取固件", "请先选择 OTA、线刷 ZIP、TGZ 或 payload.bin。", mbOK|mbIconInfo)
 		return
 	}
 	names, items := app.selectedPartitions()
@@ -317,12 +392,19 @@ func (app *application) startExtraction() {
 	app.cancel = cancel
 	app.setWorking(true, true)
 	sendMessage(app.progressBar, pbmSetPos, 0, 0)
-	if app.details.Remote {
-		setText(app.statusLabel, "在线按需连接中：正在读取 ZIP 目录与 Payload 清单，可随时取消...")
+	if app.details.Mode == packageModeTGZ {
+		setText(app.statusLabel, "正在扫描 TGZ 缓存并提取所选镜像，可随时取消...")
+	} else if app.details.Mode == packageModeZIP && app.details.Remote {
+		setText(app.statusLabel, "在线按需连接中：正在读取 ZIP 目录与所选镜像，可随时取消...")
+	} else if app.details.Remote {
+		setText(app.statusLabel, "在线按需连接中：正在读取 Payload 数据，可随时取消...")
 	} else {
 		setText(app.statusLabel, fmt.Sprintf("正在提取 %d 个分区（%d 线程）...", len(names), threads))
 	}
 	app.appendLog(fmt.Sprintf("开始提取：%s；线程数：%d。", strings.Join(names, ", "), threads))
+	if app.details.Mode == packageModeTGZ && threads > 1 {
+		app.appendLog("TGZ 是单一串流，将按归档顺序扫描提取；线程设置对 TGZ 不生效。")
+	}
 
 	var callbackMu sync.Mutex
 	lastUpdate := time.Time{}
@@ -342,7 +424,7 @@ func (app *application) startExtraction() {
 	}
 
 	go func() {
-		err := extractPackage(ctx, app.details.Path, outputDir, sourceDir, names, threads, progressCallback)
+		err := extractPackageWithItems(ctx, app.details.Path, outputDir, sourceDir, names, items, threads, progressCallback)
 		app.queueUI(func() {
 			app.cancel = nil
 			app.setWorking(false, false)
@@ -404,8 +486,8 @@ func (app *application) cancelExtraction() {
 	}
 	app.cancel()
 	enable(app.cancelButton, false)
-	setText(app.statusLabel, "正在取消并清理未完成文件...")
-	app.appendLog("收到取消请求，正在安全停止...")
+	setText(app.statusLabel, "正在取消并清理临时文件...")
+	app.appendLog("收到取消请求，正在安全停止并清理...")
 }
 
 func (app *application) setWorking(working, cancelable bool) {
