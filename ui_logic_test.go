@@ -151,7 +151,7 @@ func TestGitHubFooterNativeLayoutAndStyle(t *testing.T) {
 	app.createControls()
 	app.layout()
 
-	if text := getText(app.githubLink); text != "help660vip/LitePayloadDumper" {
+	if text := getText(app.githubLink); text != projectLabel {
 		t.Fatalf("GitHub footer text = %q", text)
 	}
 	getWindowLongPtr := user32.NewProc("GetWindowLongPtrW")
@@ -171,13 +171,15 @@ func TestGitHubFooterNativeLayoutAndStyle(t *testing.T) {
 	screenToClient.Call(parent, uintptr(unsafe.Pointer(&topLeft)))
 	screenToClient.Call(parent, uintptr(unsafe.Pointer(&bottomRight)))
 	clientWidth, clientHeight := getClientSize(parent)
-	if width := bottomRight.X - topLeft.X; width != 278 {
-		t.Fatalf("GitHub footer width = %d, want 278", width)
+	footerWidth := bottomRight.X - topLeft.X
+	textWidth := measureTextWidth(app.font, projectLabel)
+	if footerWidth < textWidth+46 {
+		t.Fatalf("GitHub footer width %d cannot fit text %d plus icon and padding", footerWidth, textWidth)
 	}
 	if bottomRight.Y != clientHeight-15 {
 		t.Fatalf("GitHub footer bottom = %d, client height = %d", bottomRight.Y, clientHeight)
 	}
-	if topLeft.X != (clientWidth-278)/2 {
+	if topLeft.X != (clientWidth-footerWidth)/2 {
 		t.Fatalf("GitHub footer is not horizontally centered: left=%d client=%d", topLeft.X, clientWidth)
 	}
 }

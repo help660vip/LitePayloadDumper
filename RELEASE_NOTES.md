@@ -1,7 +1,8 @@
 ## LitePayloadDumper v1.0.3
 
-- 移除标题栏中的 GitHub 按钮
-- 底部增加 GitHub 图标和 `help660vip/LitePayloadDumper` 链接，图标与文字区域均可点击
+- 修复底部 GitHub 地址显示不全的问题，并改为显示完整地址
+- 链接区域根据当前 UI 字体实际宽度自动计算，并保留图标与边距
+- 底部 GitHub 图标和仓库名称所在区域均可点击
 - README 增加 Release、构建状态、Windows 和 License 徽章
 
 ### 下载

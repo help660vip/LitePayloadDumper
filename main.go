@@ -23,6 +23,7 @@ const (
 	idCancel       = 122
 	wmRunUI        = wmApp + 1
 	projectURL     = "https://github.com/help660vip/LitePayloadDumper"
+	projectLabel   = projectURL
 )
 
 type application struct {

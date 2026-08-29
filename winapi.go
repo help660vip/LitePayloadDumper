@@ -302,6 +302,8 @@ var (
 	procDestroyIcon         = user32.NewProc("DestroyIcon")
 	procSetProcessDPIAware  = user32.NewProc("SetProcessDPIAware")
 	procGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
+	procGetDC               = user32.NewProc("GetDC")
+	procReleaseDC           = user32.NewProc("ReleaseDC")
 	procFillRect            = user32.NewProc("FillRect")
 	procDrawText            = user32.NewProc("DrawTextW")
 	procGetSysColor         = user32.NewProc("GetSysColor")
@@ -313,6 +315,7 @@ var (
 	procSelectObject         = gdi32.NewProc("SelectObject")
 	procSetBkMode            = gdi32.NewProc("SetBkMode")
 	procSetTextColor         = gdi32.NewProc("SetTextColor")
+	procGetTextExtent        = gdi32.NewProc("GetTextExtentPoint32W")
 	procInitCommonControlsEx = comctl32.NewProc("InitCommonControlsEx")
 	procGetOpenFileName      = comdlg32.NewProc("GetOpenFileNameW")
 	procSHBrowseForFolder    = shell32.NewProc("SHBrowseForFolderW")
@@ -405,6 +408,25 @@ func showMessage(owner uintptr, title, text string, flags uint32) int {
 	return int(result)
 }
 
+func measureTextWidth(font uintptr, text string) int32 {
+	dc, _, _ := procGetDC.Call(0)
+	if dc == 0 {
+		return 0
+	}
+	defer procReleaseDC.Call(0, dc)
+	previousFont, _, _ := procSelectObject.Call(dc, font)
+	if previousFont != 0 && previousFont != ^uintptr(0) {
+		defer procSelectObject.Call(dc, previousFont)
+	}
+	buffer := utf16Buffer(text)
+	var extent point
+	result, _, _ := procGetTextExtent.Call(dc, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)-1), uintptr(unsafe.Pointer(&extent)))
+	if result == 0 {
+		return 0
+	}
+	return extent.X
+}
+
 var githubMarkRows = [...]uint16{
 	0b0000001111100000,
 	0b0000111111111000,
@@ -464,7 +486,7 @@ func drawGitHubLink(item *drawItemStruct, font uintptr) {
 		Right:  item.ItemRect.Right - 4,
 		Bottom: item.ItemRect.Bottom,
 	}
-	text := wstr("help660vip/LitePayloadDumper")
+	text := wstr(projectLabel)
 	flags := uintptr(dtLeft | dtVCenter | dtSingleLine | dtNoPrefix | dtEndEllipsis)
 	procDrawText.Call(item.DC, uintptr(unsafe.Pointer(text)), ^uintptr(0), uintptr(unsafe.Pointer(&textRect)), flags)
 	procSetTextColor.Call(item.DC, previousColor)

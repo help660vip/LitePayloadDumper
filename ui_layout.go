@@ -7,7 +7,7 @@ func (app *application) createControls() {
 	button := child | wsTabStop | bsPushButton
 	app.titleLabel = createWindow(0, "STATIC", "LitePayloadDumper", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.subtitleLabel = createWindow(0, "STATIC", "Android 固件分区镜像提取", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
-	app.githubLink = createWindow(0, "STATIC", "help660vip/LitePayloadDumper", child|ssNotify|ssOwnerDraw, 0, 0, 0, 0, app.hwnd, idGitHub, app.instance)
+	app.githubLink = createWindow(0, "STATIC", projectLabel, child|ssNotify|ssOwnerDraw, 0, 0, 0, 0, app.hwnd, idGitHub, app.instance)
 	app.inputLabel = createWindow(0, "STATIC", "固件文件或在线地址", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.inputEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsTabStop|esAutoHScroll, 0, 0, 0, 0, app.hwnd, idInput, app.instance)
 	app.loadButton = createWindow(0, "BUTTON", "读取", button, 0, 0, 0, 0, app.hwnd, idLoad, app.instance)
@@ -112,6 +112,12 @@ func (app *application) layout() {
 	move(app.statusLabel, margin, height-148, width-2*margin, 21)
 	move(app.progressBar, margin, height-126, width-2*margin, 17)
 	move(app.logEdit, margin, height-102, width-2*margin, 55)
-	githubWidth := int32(278)
+	githubWidth := measureTextWidth(app.font, projectLabel) + 46
+	if githubWidth < 340 {
+		githubWidth = 340
+	}
+	if githubWidth > width-2*margin {
+		githubWidth = width - 2*margin
+	}
 	move(app.githubLink, (width-githubWidth)/2, height-40, githubWidth, 25)
 }
