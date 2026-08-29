@@ -1,9 +1,6 @@
 ## LitePayloadDumper v1.0.3
 
-- 修复底部 GitHub 地址显示不全的问题，并改为显示完整地址
-- 链接区域根据当前 UI 字体实际宽度自动计算，并保留图标与边距
-- 底部 GitHub 图标和仓库名称所在区域均可点击
-- README 增加 Release、构建状态、Windows 和 License 徽章
+- 修复已知问题
 
 ### 下载
 
