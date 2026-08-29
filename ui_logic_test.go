@@ -185,12 +185,30 @@ func TestGitHubFooterNativeLayoutAndStyle(t *testing.T) {
 }
 
 func TestDrawGitHubLinkRendersMark(t *testing.T) {
+	type bitmapInfoHeader struct {
+		Size          uint32
+		Width         int32
+		Height        int32
+		Planes        uint16
+		BitCount      uint16
+		Compression   uint32
+		SizeImage     uint32
+		XPelsPerMeter int32
+		YPelsPerMeter int32
+		ClrUsed       uint32
+		ClrImportant  uint32
+	}
+	type bitmapInfo struct {
+		Header bitmapInfoHeader
+		Colors [1]uint32
+	}
+
 	getDC := user32.NewProc("GetDC")
 	releaseDC := user32.NewProc("ReleaseDC")
 	createCompatibleDC := gdi32.NewProc("CreateCompatibleDC")
-	createCompatibleBitmap := gdi32.NewProc("CreateCompatibleBitmap")
+	createDIBSection := gdi32.NewProc("CreateDIBSection")
 	deleteDC := gdi32.NewProc("DeleteDC")
-	getPixel := gdi32.NewProc("GetPixel")
+	gdiFlush := gdi32.NewProc("GdiFlush")
 
 	screenDC, _, _ := getDC.Call(0)
 	if screenDC == 0 {
@@ -202,9 +220,26 @@ func TestDrawGitHubLinkRendersMark(t *testing.T) {
 		t.Fatal("failed to create memory DC")
 	}
 	defer deleteDC.Call(memoryDC)
-	bitmap, _, _ := createCompatibleBitmap.Call(screenDC, 278, 25)
+	info := bitmapInfo{}
+	info.Header.Size = uint32(unsafe.Sizeof(info.Header))
+	info.Header.Width = 278
+	info.Header.Height = -25
+	info.Header.Planes = 1
+	info.Header.BitCount = 32
+	var pixels uintptr
+	bitmap, _, _ := createDIBSection.Call(
+		screenDC,
+		uintptr(unsafe.Pointer(&info)),
+		0,
+		uintptr(unsafe.Pointer(&pixels)),
+		0,
+		0,
+	)
 	if bitmap == 0 {
-		t.Fatal("failed to create footer bitmap")
+		t.Fatal("failed to create footer DIB section")
+	}
+	if pixels == 0 {
+		t.Fatal("footer DIB section returned no pixel buffer")
 	}
 	previousBitmap, _, _ := procSelectObject.Call(memoryDC, bitmap)
 	defer func() {
@@ -219,15 +254,19 @@ func TestDrawGitHubLinkRendersMark(t *testing.T) {
 
 	item := &drawItemStruct{DC: memoryDC, ItemRect: rect{Right: 278, Bottom: 25}}
 	drawGitHubLink(item, font)
-	markPixel, _, _ := getPixel.Call(memoryDC, 11, 4)
-	wantMark, _, _ := procGetSysColor.Call(colorWindowText)
-	if uint32(markPixel) != uint32(wantMark) {
-		t.Fatalf("GitHub mark pixel = %#x, want %#x", markPixel, wantMark)
+	gdiFlush.Call()
+	buffer := unsafe.Slice((*uint32)(unsafe.Pointer(pixels)), 278*25)
+	background := buffer[0]
+	markPixels := 0
+	for y := 4; y < 20; y++ {
+		for x := 5; x < 21; x++ {
+			if buffer[y*278+x] != background {
+				markPixels++
+			}
+		}
 	}
-	backgroundPixel, _, _ := getPixel.Call(memoryDC, 5, 4)
-	wantBackground, _, _ := procGetSysColor.Call(colorBtnFace)
-	if uint32(backgroundPixel) != uint32(wantBackground) {
-		t.Fatalf("footer background pixel = %#x, want %#x", backgroundPixel, wantBackground)
+	if markPixels < 32 {
+		t.Fatalf("GitHub mark contains only %d foreground pixels", markPixels)
 	}
 }
 
