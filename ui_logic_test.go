@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 	"unsafe"
 )
@@ -136,6 +137,9 @@ func TestGitHubFooterMarkAndText(t *testing.T) {
 }
 
 func TestGitHubFooterNativeLayoutAndStyle(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	instance, _, _ := procGetModuleHandle.Call(0)
 	parent := createWindow(0, "STATIC", "", wsOverlappedWindow, 0, 0, 1000, 780, 0, 0, instance)
 	if parent == 0 {
