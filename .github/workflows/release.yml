@@ -161,7 +161,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [23, 35]
+        api: [23, 29]
     steps:
       - uses: actions/download-artifact@v4
         with:
