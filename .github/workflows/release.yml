@@ -100,7 +100,27 @@ jobs:
             fi
             KEYSTORE_PATH="$RUNNER_TEMP/litepayloaddumper-release.p12"
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            if keytool -list -storetype PKCS12 -keystore "$KEYSTORE_PATH" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+              EFFECTIVE_KEY_ALIAS="$ANDROID_KEY_ALIAS"
+            else
+              EFFECTIVE_KEY_ALIAS="$(
+                keytool -list -v -storetype PKCS12 -keystore "$KEYSTORE_PATH" \
+                  -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null |
+                  awk -F': ' '
+                    /^Alias name: / { alias = $2 }
+                    /^Entry type: PrivateKeyEntry$/ { print alias; exit }
+                  '
+              )"
+              if [[ -z "$EFFECTIVE_KEY_ALIAS" ]]; then
+                echo "::error::No private-key entry was found in the Android keystore"
+                exit 1
+              fi
+              echo "::notice::Using the private-key alias stored in the Android keystore"
+            fi
+            echo "::add-mask::$EFFECTIVE_KEY_ALIAS"
             echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=$EFFECTIVE_KEY_ALIAS" >> "$GITHUB_ENV"
           fi
       - name: Build Go Mobile library
         shell: bash
