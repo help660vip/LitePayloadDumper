@@ -1,5 +1,6 @@
 package com.help660.litepayloaddumper;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
@@ -285,6 +286,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    @SuppressLint("WrongConstant")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
@@ -292,9 +294,11 @@ public final class MainActivity extends Activity {
         }
         Uri uri = data.getData();
         int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        try {
-            getContentResolver().takePersistableUriPermission(uri, flags);
-        } catch (SecurityException ignored) {
+        if (flags != 0) {
+            try {
+                getContentResolver().takePersistableUriPermission(uri, flags);
+            } catch (SecurityException ignored) {
+            }
         }
         if (requestCode == REQUEST_INPUT) {
             closeCurrentSession();
