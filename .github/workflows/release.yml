@@ -63,10 +63,52 @@ jobs:
           path: dist/${{ matrix.output }}
           if-no-files-found: error
 
+  build_android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build Go Mobile library
+        shell: bash
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260821190718-4776eadac327
+          gomobile init
+          mkdir -p android/app/libs
+          gomobile bind -target=android -androidapi=23 -trimpath -ldflags="-s -w" -o android/app/libs/mobileapi.aar ./mobileapi
+      - name: Test and build Android application
+        shell: bash
+        run: |
+          gradle -p android testReleaseUnitTest lintRelease assembleRelease --stacktrace
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk dist/LitePayloadDumper_Android.apk
+      - name: Verify APK metadata
+        shell: bash
+        run: |
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          "$AAPT" dump badging dist/LitePayloadDumper_Android.apk | tee dist/android-badging.txt
+          grep -q "package: name='com.help660.litepayloaddumper' versionCode='110' versionName='1.1.0'" dist/android-badging.txt
+          grep -q "launchable-activity: name='com.help660.litepayloaddumper.MainActivity'" dist/android-badging.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Android
+          path: dist/LitePayloadDumper_Android.apk
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [test, build]
+    needs: [test, build, build_android]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -79,7 +121,7 @@ jobs:
       - name: Generate SHA256 checksums
         shell: pwsh
         run: |
-          Get-ChildItem -LiteralPath dist -Filter '*.exe' | Sort-Object Name | ForEach-Object {
+          Get-ChildItem -LiteralPath dist | Where-Object { $_.Extension -in '.exe', '.apk' } | Sort-Object Name | ForEach-Object {
             $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"
           } | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding ascii
@@ -89,5 +131,5 @@ jobs:
           files: |
             dist/LitePayloadDumper_Win7.exe
             dist/LitePayloadDumper_Win10-11.exe
+            dist/LitePayloadDumper_Android.apk
             dist/SHA256SUMS.txt
-

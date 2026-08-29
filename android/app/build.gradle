@@ -1,0 +1,58 @@
+plugins {
+    id "com.android.application"
+}
+
+def releaseStorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+
+android {
+    namespace "com.help660.litepayloaddumper"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.help660.litepayloaddumper"
+        minSdk 23
+        targetSdk 35
+        versionCode 110
+        versionName "1.1.0"
+    }
+
+    signingConfigs {
+        release {
+            if (releaseStorePath) {
+                storeFile file(releaseStorePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig releaseStorePath ? signingConfigs.release : signingConfigs.debug
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+    }
+}
+
+dependencies {
+    implementation files("libs/mobileapi.aar")
+    testImplementation "junit:junit:4.13.2"
+}

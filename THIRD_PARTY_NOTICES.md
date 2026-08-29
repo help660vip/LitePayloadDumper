@@ -22,6 +22,13 @@ The Windows icon, manifest and version resource are generated with `github.com/t
 
 `go-winres` is a build-time tool and is not included as a runtime dependency.
 
+## Go Mobile
+
+The Android application uses `golang.org/x/mobile/cmd/gomobile` to generate the Java bindings and native libraries bundled in the APK.
+
+- License: BSD 3-Clause
+- Upstream: <https://github.com/golang/mobile>
+
 ## GitHub Octicons
 
 The footer uses a 16-pixel GitHub mark derived from GitHub's Primer Octicons `mark-github-16` asset.

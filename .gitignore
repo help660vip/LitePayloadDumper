@@ -3,3 +3,8 @@
 /assets/logo-mark.png
 *.test
 *.out
+/android/.gradle/
+/android/app/build/
+/android/app/libs/*.aar
+/android/*.jks
+/android/*.keystore
