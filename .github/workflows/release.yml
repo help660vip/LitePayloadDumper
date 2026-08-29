@@ -66,6 +66,11 @@ jobs:
   build_android:
     name: Build Android APK
     runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -79,6 +84,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+      - name: Configure Android signing
+        shell: bash
+        run: |
+          if [[ -z "$ANDROID_KEYSTORE_BASE64" ]]; then
+            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+              echo "::error::A tagged release requires the Android release signing secrets"
+              exit 1
+            fi
+            echo "::notice::Using the Android debug key for this verification-only build"
+          else
+            if [[ -z "$ANDROID_KEYSTORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEY_PASSWORD" ]]; then
+              echo "::error::Android signing secrets are incomplete"
+              exit 1
+            fi
+            KEYSTORE_PATH="$RUNNER_TEMP/litepayloaddumper-release.p12"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          fi
       - name: Build Go Mobile library
         shell: bash
         run: |
@@ -97,19 +120,67 @@ jobs:
         shell: bash
         run: |
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           "$AAPT" dump badging dist/LitePayloadDumper_Android.apk | tee dist/android-badging.txt
           grep -q "package: name='com.help660.litepayloaddumper' versionCode='110' versionName='1.1.0'" dist/android-badging.txt
           grep -q "launchable-activity: name='com.help660.litepayloaddumper.MainActivity'" dist/android-badging.txt
+          "$APKSIGNER" verify --verbose --print-certs dist/LitePayloadDumper_Android.apk | tee dist/android-signing.txt
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" dist/android-signing.txt
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" ]]; then
+            grep -q "Signer #1 certificate DN: CN=help660vip, O=LitePayloadDumper" dist/android-signing.txt
+          else
+            grep -q "Signer #1 certificate DN: C=US, O=Android, CN=Android Debug" dist/android-signing.txt
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: Android
           path: dist/LitePayloadDumper_Android.apk
           if-no-files-found: error
 
+  test_android:
+    name: Test Android API ${{ matrix.api }}
+    needs: build_android
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [23, 35]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Android
+          path: dist
+      - name: Install and launch APK
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb install -r dist/LitePayloadDumper_Android.apk
+            adb shell am start -W -n com.help660.litepayloaddumper/.MainActivity | tee android-launch.txt
+            grep -q "Status: ok" android-launch.txt
+            adb shell uiautomator dump /sdcard/litepayloaddumper-ui.xml
+            adb pull /sdcard/litepayloaddumper-ui.xml android-ui.xml
+            grep -q "LitePayloadDumper" android-ui.xml
+            grep -q "读取固件" android-ui.xml
+            adb exec-out screencap -p > "android-api-${{ matrix.api }}.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Android-smoke-api-${{ matrix.api }}
+          path: |
+            android-launch.txt
+            android-ui.xml
+            android-api-${{ matrix.api }}.png
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [test, build, build_android]
+    needs: [test, build, build_android, test_android]
     runs-on: windows-latest
     permissions:
       contents: write

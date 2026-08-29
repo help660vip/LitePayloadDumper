@@ -1,5 +1,7 @@
 /dist/*.exe
 /dist/*.exe~
+/dist/*.apk
+/dist/verify-*/
 /assets/logo-mark.png
 *.test
 *.out
@@ -8,3 +10,5 @@
 /android/app/libs/*.aar
 /android/*.jks
 /android/*.keystore
+/android/*.p12
+/android/*.dpapi
