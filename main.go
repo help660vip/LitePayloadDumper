@@ -13,6 +13,7 @@ const (
 	idBrowse       = 101
 	idSelectAll    = 102
 	idSelectNone   = 103
+	idGitHub       = 104
 	idLoad         = 105
 	idSearch       = 106
 	idOutput       = 110
@@ -21,6 +22,7 @@ const (
 	idExtract      = 121
 	idCancel       = 122
 	wmRunUI        = wmApp + 1
+	projectURL     = "https://github.com/help660vip/LitePayloadDumper"
 )
 
 type application struct {
@@ -30,6 +32,7 @@ type application struct {
 
 	titleLabel       uintptr
 	subtitleLabel    uintptr
+	githubButton     uintptr
 	inputLabel       uintptr
 	inputEdit        uintptr
 	loadButton       uintptr

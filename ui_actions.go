@@ -26,6 +26,10 @@ func (app *application) handleCommand(id, notification int) {
 		return
 	}
 	switch id {
+	case idGitHub:
+		if !openExternalURL(app.hwnd, projectURL) {
+			showMessage(app.hwnd, "无法打开浏览器", "请手动访问：\n"+projectURL, mbOK|mbIconError)
+		}
 	case idBrowse:
 		if !app.busy {
 			if filename := chooseInputFile(app.hwnd); filename != "" {
@@ -192,15 +196,7 @@ func defaultOutputDir(input string) string {
 				base = strings.TrimSuffix(base, urlpath.Ext(base))
 			}
 		}
-		if home, err := os.UserHomeDir(); err == nil {
-			downloads := filepath.Join(home, "Downloads")
-			if stat, statErr := os.Stat(downloads); statErr == nil && stat.IsDir() {
-				parent = downloads
-			}
-		}
-		if parent == "" {
-			parent, _ = os.Getwd()
-		}
+		parent = defaultRemoteOutputParent()
 	} else {
 		base = filepath.Base(input)
 		if strings.HasSuffix(strings.ToLower(base), ".tar.gz") {
@@ -214,6 +210,35 @@ func defaultOutputDir(input string) string {
 		base = "payload"
 	}
 	return filepath.Join(parent, base+"_提取")
+}
+
+func defaultRemoteOutputParent() string {
+	downloads := knownDownloadsDirectory()
+	downloadsUsable := false
+	if downloads != "" {
+		if stat, err := os.Stat(downloads); err == nil && stat.IsDir() {
+			downloadsUsable = true
+		}
+	}
+
+	executableDir := ""
+	if executable, err := os.Executable(); err == nil {
+		executableDir = filepath.Dir(executable)
+	}
+	if parent := chooseRemoteOutputParent(downloads, executableDir, downloadsUsable); parent != "" {
+		return parent
+	}
+	if currentDir, err := os.Getwd(); err == nil {
+		return currentDir
+	}
+	return "."
+}
+
+func chooseRemoteOutputParent(downloads, executableDir string, downloadsUsable bool) string {
+	if downloadsUsable && downloads != "" && !strings.EqualFold(filepath.VolumeName(filepath.Clean(downloads)), "C:") {
+		return downloads
+	}
+	return executableDir
 }
 
 func (app *application) populatePartitions() {

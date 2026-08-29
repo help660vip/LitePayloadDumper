@@ -1,48 +1,48 @@
-<p align="center">
-  <img src="assets/logo-mark.png" width="112" alt="LitePayloadDumper Logo">
-</p>
-
 # LitePayloadDumper
 
-[![Release](https://img.shields.io/github/v/release/help660vip/LitePayloadDumper?label=release)](https://github.com/help660vip/LitePayloadDumper/releases)
-[![Windows](https://img.shields.io/badge/Windows-7%20%7C%2010%20%7C%2011-0078D6?logo=windows)](https://github.com/help660vip/LitePayloadDumper/releases)
-[![License](https://img.shields.io/github/license/help660vip/LitePayloadDumper)](LICENSE)
-
-LitePayloadDumper 是一个 Windows 图形化 Android 固件分区提取工具。它可以读取本地文件或在线链接，从 OTA Payload、线刷 ZIP、TGZ / TAR.GZ 中选择并导出分区镜像。
+这是一个 Windows 下用的 Android 固件分区提取工具。输入本地固件或在线地址，读取分区表后，勾选要导出的镜像即可。
 
 ## 下载
 
-前往 [Releases](https://github.com/help660vip/LitePayloadDumper/releases) 下载：
+在 [Releases](https://github.com/help660vip/LitePayloadDumper/releases) 里有两个版本：
 
 | 文件 | 系统 |
 | --- | --- |
 | `LitePayloadDumper_Win7.exe` | Windows 7 SP1 64 位 |
 | `LitePayloadDumper_Win10-11.exe` | Windows 10 / 11 64 位 |
 
-两个版本均为单文件 EXE，不需要安装 .NET、Java、Python、VC++ 运行库，也不需要外置 DLL。
+都是单文件 EXE，不用安装 .NET、Java、Python、VC++ 运行库，也没有需要放在旁边的 DLL。
 
-## 使用方法
+## 怎么用
 
 1. 选择本地固件，或粘贴 HTTP / HTTPS 链接。
 2. 点击“读取”，等待分区列表出现。
-3. 使用搜索框查找分区并勾选需要的项目。程序默认不勾选任何分区。
-4. 设置保存目录和线程数。线程范围为 1～64，默认 4。
+3. 用搜索框找分区，勾选需要的项目。刚读取完成时不会自动勾选任何分区。
+4. 确认保存目录和线程数。默认 4 线程，可填 1～64。
 5. 点击“提取所选分区”。
 
-界面会显示固件中的机型、设备代号、Android 版本、系统版本、安全补丁日期等可识别信息。需要旧版本镜像的增量分区不支持提取，请使用完整固件。
+读取成功后，界面会列出机型、设备代号、Android 版本、系统版本、安全补丁日期和构建日期等信息。
 
-## 支持的文件
+在线地址的默认保存位置取 Windows 记录的“下载”文件夹。如果这个文件夹在 C 盘，或者程序无法读取它，则改用 EXE 所在目录。本地固件仍默认保存到固件旁边。
+
+## 能读哪些包
 
 - 含 `payload.bin` 的 OTA ZIP
 - 独立 `payload.bin`
 - 直接包含 `.img` 的线刷 ZIP
-- TGZ / TAR.GZ 线刷包
+- `.tgz` / `.tar.gz` 线刷包
 
-在线 ZIP 使用 HTTP Range 按需读取。服务器必须返回 `206 Partial Content`；不支持 Range 时程序会停止，不会改为下载整个 ZIP。远程 ZIP 没有 `payload.bin` 时，会自动按普通 ZIP 读取其中的 `.img`。
+在线 ZIP 使用 HTTP Range，只读取 ZIP 目录、Payload 清单和所选分区用到的字节段。远程 ZIP 没有 `payload.bin` 时，程序会改按普通 ZIP 查找其中的 `.img`。如果服务器不支持 Range，程序会报错，不会悄悄下载整个 ZIP。
 
-TGZ 是连续 gzip 数据，无法随机定位单个文件。读取远程 TGZ 前程序会先说明情况并征求确认；确认后完整缓存一次，提取时复用缓存，取消、换包或退出时清理临时文件。
+TGZ 不能像 ZIP 那样随机读取单个文件。打开在线 TGZ 时，程序会先询问是否完整缓存；缓存会供后续提取复用，换包或退出时清理。缓存过程中取消也会立即清理。
 
-## 从源码构建
+## 已知限制
+
+- 只支持 64 位 Windows。Windows 7 需要 SP1。
+- 增量 OTA 中依赖旧镜像的分区无法直接还原，请换用完整包。
+- 在线文件所在服务器必须允许 HTTP Range 请求。
+
+## 编译
 
 Windows 7 版本使用 Go 1.20.14；Windows 10 / 11 版本使用当前稳定版 Go：
 
@@ -52,12 +52,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 `
   -GoModern 'C:\Go\bin\go.exe'
 ```
 
-运行测试：
+测试：
 
 ```powershell
 go test ./...
 ```
 
-## 致谢与许可
+## 许可
 
 Payload 解析核心基于 [ssut/payload-dumper-go](https://github.com/ssut/payload-dumper-go)。项目代码采用 [MIT License](LICENSE)，第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

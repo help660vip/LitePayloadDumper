@@ -120,6 +120,20 @@ const (
 type point struct{ X, Y int32 }
 type rect struct{ Left, Top, Right, Bottom int32 }
 
+type guid struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
+}
+
+var folderIDDownloads = guid{
+	Data1: 0x374de290,
+	Data2: 0x123f,
+	Data3: 0x4565,
+	Data4: [8]byte{0x91, 0x64, 0x39, 0xc4, 0x92, 0x5e, 0x46, 0x7b},
+}
+
 type msg struct {
 	Hwnd    uintptr
 	Message uint32
@@ -270,6 +284,8 @@ var (
 	procGetOpenFileName      = comdlg32.NewProc("GetOpenFileNameW")
 	procSHBrowseForFolder    = shell32.NewProc("SHBrowseForFolderW")
 	procSHGetPathFromIDList  = shell32.NewProc("SHGetPathFromIDListW")
+	procSHGetKnownFolderPath = shell32.NewProc("SHGetKnownFolderPath")
+	procShellExecute         = shell32.NewProc("ShellExecuteW")
 	procDragAcceptFiles      = shell32.NewProc("DragAcceptFiles")
 	procDragQueryFile        = shell32.NewProc("DragQueryFileW")
 	procDragFinish           = shell32.NewProc("DragFinish")
@@ -354,6 +370,42 @@ func applyFont(hwnd, font uintptr) {
 func showMessage(owner uintptr, title, text string, flags uint32) int {
 	result, _, _ := procMessageBox.Call(owner, uintptr(unsafe.Pointer(wstr(text))), uintptr(unsafe.Pointer(wstr(title))), uintptr(flags))
 	return int(result)
+}
+
+func openExternalURL(owner uintptr, target string) bool {
+	result, _, _ := procShellExecute.Call(
+		owner,
+		uintptr(unsafe.Pointer(wstr("open"))),
+		uintptr(unsafe.Pointer(wstr(target))),
+		0,
+		0,
+		swShow,
+	)
+	return result > 32
+}
+
+func knownDownloadsDirectory() string {
+	var path *uint16
+	result, _, _ := procSHGetKnownFolderPath.Call(
+		uintptr(unsafe.Pointer(&folderIDDownloads)),
+		0,
+		0,
+		uintptr(unsafe.Pointer(&path)),
+	)
+	if int32(result) < 0 || path == nil {
+		return ""
+	}
+	defer procCoTaskMemFree.Call(uintptr(unsafe.Pointer(path)))
+
+	buffer := make([]uint16, 0, 260)
+	for current := uintptr(unsafe.Pointer(path)); ; current += unsafe.Sizeof(*path) {
+		value := *(*uint16)(unsafe.Pointer(current))
+		if value == 0 {
+			break
+		}
+		buffer = append(buffer, value)
+	}
+	return syscall.UTF16ToString(buffer)
 }
 
 func chooseInputFile(owner uintptr) string {

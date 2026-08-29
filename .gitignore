@@ -1,4 +1,5 @@
 /dist/*.exe
 /dist/*.exe~
+/assets/logo-mark.png
 *.test
 *.out

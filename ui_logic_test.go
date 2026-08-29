@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 	"testing"
+	"unsafe"
 )
 
 func TestFilterPartitionsByName(t *testing.T) {
@@ -55,6 +56,67 @@ func TestDefaultOutputDirRemovesTarGZSuffix(t *testing.T) {
 	} {
 		if got := filepath.Base(defaultOutputDir(input)); got != "fastboot_提取" {
 			t.Fatalf("defaultOutputDir(%q) = %q", input, got)
+		}
+	}
+}
+
+func TestRemoteOutputParentPrefersRelocatedDownloads(t *testing.T) {
+	if got := chooseRemoteOutputParent(`D:\Downloads`, `E:\Tools`, true); got != `D:\Downloads` {
+		t.Fatalf("relocated Downloads returned %q", got)
+	}
+}
+
+func TestRemoteOutputParentFallsBackToExecutableDirectory(t *testing.T) {
+	tests := []struct {
+		name            string
+		downloads       string
+		downloadsUsable bool
+	}{
+		{name: "Downloads is on C", downloads: `C:\Users\tester\Downloads`, downloadsUsable: true},
+		{name: "Known Folder unavailable", downloads: "", downloadsUsable: false},
+		{name: "Downloads cannot be read", downloads: `D:\Downloads`, downloadsUsable: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := chooseRemoteOutputParent(test.downloads, `E:\Portable\LitePayloadDumper`, test.downloadsUsable); got != `E:\Portable\LitePayloadDumper` {
+				t.Fatalf("fallback directory = %q", got)
+			}
+		})
+	}
+}
+
+func TestInfoLabelsHaveRoomForFullChineseText(t *testing.T) {
+	getDC := user32.NewProc("GetDC")
+	releaseDC := user32.NewProc("ReleaseDC")
+	selectObject := gdi32.NewProc("SelectObject")
+	getTextExtent := gdi32.NewProc("GetTextExtentPoint32W")
+	dc, _, _ := getDC.Call(0)
+	if dc == 0 {
+		t.Fatal("failed to create screen device context")
+	}
+	font := createUIFont()
+	if font == 0 {
+		releaseDC.Call(0, dc)
+		t.Fatal("failed to create UI font")
+	}
+	previous, _, _ := selectObject.Call(dc, font)
+	defer func() {
+		if previous != 0 {
+			selectObject.Call(dc, previous)
+		}
+		procDeleteObject.Call(font)
+		releaseDC.Call(0, dc)
+	}()
+
+	for _, label := range []string{"机型：", "系统版本：", "设备代号：", "安卓版本：", "补丁日期：", "SDK：", "包类型：", "构建日期："} {
+		text := utf16Buffer(label)
+		var extent point
+		ok, _, _ := getTextExtent.Call(dc, uintptr(unsafe.Pointer(&text[0])), uintptr(len(text)-1), uintptr(unsafe.Pointer(&extent)))
+		if ok == 0 {
+			t.Fatalf("failed to measure %q", label)
+		}
+		if extent.X+8 > infoLabelWidth {
+			t.Fatalf("label %q needs %d px including padding, layout provides %d px", label, extent.X+8, infoLabelWidth)
 		}
 	}
 }
