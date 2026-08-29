@@ -58,3 +58,59 @@ func TestDefaultOutputDirRemovesTarGZSuffix(t *testing.T) {
 		}
 	}
 }
+
+func TestEditableControlsForSelectAllShortcut(t *testing.T) {
+	app := &application{inputEdit: 11, searchEdit: 12, outputEdit: 13, threadEdit: 14}
+	for _, handle := range []uintptr{11, 12, 13, 14} {
+		if !app.isEditableControl(handle) {
+			t.Fatalf("editable handle %d was not recognized", handle)
+		}
+	}
+	for _, handle := range []uintptr{0, 10, 15} {
+		if app.isEditableControl(handle) {
+			t.Fatalf("non-editable handle %d was recognized", handle)
+		}
+	}
+	valid := &msg{Hwnd: 11, Message: wmKeyDown, WParam: vkA}
+	if !app.isSelectAllShortcut(valid, true) {
+		t.Fatal("Ctrl+A was not accepted for an editable control")
+	}
+	for _, candidate := range []struct {
+		message     *msg
+		controlDown bool
+	}{
+		{message: valid, controlDown: false},
+		{message: &msg{Hwnd: 15, Message: wmKeyDown, WParam: vkA}, controlDown: true},
+		{message: &msg{Hwnd: 11, Message: wmKeyDown, WParam: vkDelete}, controlDown: true},
+		{message: nil, controlDown: true},
+	} {
+		if app.isSelectAllShortcut(candidate.message, candidate.controlDown) {
+			t.Fatal("invalid Ctrl+A shortcut was accepted")
+		}
+	}
+}
+
+func TestNativeEditSelectAllThenDelete(t *testing.T) {
+	instance, _, _ := procGetModuleHandle.Call(0)
+	edit := createWindow(0, "EDIT", "需要清空的内容", esAutoHScroll, 0, 0, 300, 30, 0, 0, instance)
+	if edit == 0 {
+		t.Fatal("failed to create native EDIT control")
+	}
+	defer procDestroyWindow.Call(edit)
+	sendMessage(edit, emSetSel, 0, ^uintptr(0))
+	sendMessage(edit, wmKeyDown, vkDelete, 0)
+	if value := getText(edit); value != "" {
+		t.Fatalf("Ctrl+A selection followed by Delete left %q", value)
+	}
+}
+
+func TestEmbeddedApplicationIconLoads(t *testing.T) {
+	instance, _, _ := procGetModuleHandle.Call(0)
+	for _, size := range []int32{16, 32} {
+		icon := loadIconResource(instance, 1, size, size)
+		if icon == 0 {
+			t.Fatalf("embedded application icon %dx%d did not load", size, size)
+		}
+		procDestroyIcon.Call(icon)
+	}
+}

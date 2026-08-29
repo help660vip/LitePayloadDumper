@@ -1,4 +1,4 @@
 /dist/*.exe
+/dist/*.exe~
 *.test
 *.out
-

@@ -3,12 +3,12 @@ package main
 func (app *application) createControls() {
 	child := uint32(wsChild | wsVisible)
 	button := child | wsTabStop | bsPushButton
-	app.titleLabel = createWindow(0, "STATIC", "Payload 分区提取器", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
-	app.subtitleLabel = createWindow(0, "STATIC", "提取 OTA Payload、通用线刷 ZIP / TGZ 镜像，并读取设备与系统信息", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
-	app.inputLabel = createWindow(0, "STATIC", "本地固件 / 在线 URL（ZIP 按需读取；TGZ 会先询问是否整包缓存）", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
+	app.titleLabel = createWindow(0, "STATIC", "LitePayloadDumper", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
+	app.subtitleLabel = createWindow(0, "STATIC", "Android 固件分区镜像提取", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
+	app.inputLabel = createWindow(0, "STATIC", "固件文件或在线地址", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.inputEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsTabStop|esAutoHScroll, 0, 0, 0, 0, app.hwnd, idInput, app.instance)
 	app.loadButton = createWindow(0, "BUTTON", "读取", button, 0, 0, 0, 0, app.hwnd, idLoad, app.instance)
-	app.browseButton = createWindow(0, "BUTTON", "本地...", button, 0, 0, 0, 0, app.hwnd, idBrowse, app.instance)
+	app.browseButton = createWindow(0, "BUTTON", "打开文件...", button, 0, 0, 0, 0, app.hwnd, idBrowse, app.instance)
 
 	app.infoGroup = createWindow(0, "BUTTON", "固件信息", child|0x00000007, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	labels := []string{"机型", "系统版本", "设备代号", "安卓版本", "补丁日期", "SDK", "包类型", "构建日期"}
@@ -21,7 +21,6 @@ func (app *application) createControls() {
 	app.searchLabel = createWindow(0, "STATIC", "搜索分区：", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.searchEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsTabStop|esAutoHScroll, 0, 0, 0, 0, app.hwnd, idSearch, app.instance)
 	sendMessage(app.searchEdit, emSetLimitText, 128, 0)
-	app.selectBootButton = createWindow(0, "BUTTON", "常用启动分区", button, 0, 0, 0, 0, app.hwnd, idSelectBoot, app.instance)
 	app.selectAllButton = createWindow(0, "BUTTON", "全选", button, 0, 0, 0, 0, app.hwnd, idSelectAll, app.instance)
 	app.selectNoneButton = createWindow(0, "BUTTON", "全不选", button, 0, 0, 0, 0, app.hwnd, idSelectNone, app.instance)
 	app.partitionList = createWindow(wsExClientEdge, "SysListView32", "", child|wsTabStop|wsVScroll|wsHScroll|lvsReport|lvsShowSelAlways, 0, 0, 0, 0, app.hwnd, 0, app.instance)
@@ -35,23 +34,19 @@ func (app *application) createControls() {
 	app.outputLabel = createWindow(0, "STATIC", "保存目录：", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.outputEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsTabStop|esAutoHScroll, 0, 0, 0, 0, app.hwnd, idOutput, app.instance)
 	app.outputButton = createWindow(0, "BUTTON", "选择...", button, 0, 0, 0, 0, app.hwnd, idOutputBrowse, app.instance)
-	app.sourceLabel = createWindow(0, "STATIC", "旧镜像目录：", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
-	app.sourceEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsTabStop|esAutoHScroll, 0, 0, 0, 0, app.hwnd, idSource, app.instance)
-	app.sourceButton = createWindow(0, "BUTTON", "选择...", button, 0, 0, 0, 0, app.hwnd, idSourceBrowse, app.instance)
-
 	app.threadLabel = createWindow(0, "STATIC", "线程：", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.threadEdit = createWindow(wsExClientEdge, "EDIT", "4", child|wsTabStop|esAutoHScroll|esNumber, 0, 0, 0, 0, app.hwnd, idThreads, app.instance)
 	sendMessage(app.threadEdit, emSetLimitText, 2, 0)
 	app.extractButton = createWindow(0, "BUTTON", "提取所选分区", button|bsDefPushButton, 0, 0, 0, 0, app.hwnd, idExtract, app.instance)
 	app.cancelButton = createWindow(0, "BUTTON", "取消", button, 0, 0, 0, 0, app.hwnd, idCancel, app.instance)
 	enable(app.cancelButton, false)
-	app.statusLabel = createWindow(0, "STATIC", "请选择或拖入固件文件。", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
+	app.statusLabel = createWindow(0, "STATIC", "选择固件文件，或粘贴在线地址。", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.progressBar = createWindow(0, "msctls_progress32", "", child, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	sendMessage(app.progressBar, pbmSetRange32, 0, 1000)
 	app.logEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsVScroll|esMultiline|esReadOnly|esAutoVScroll, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	sendMessage(app.logEdit, emSetLimitText, 1024*1024, 0)
 
-	all := []uintptr{app.titleLabel, app.subtitleLabel, app.inputLabel, app.inputEdit, app.loadButton, app.browseButton, app.infoGroup, app.partitionLabel, app.searchLabel, app.searchEdit, app.selectBootButton, app.selectAllButton, app.selectNoneButton, app.partitionList, app.outputLabel, app.outputEdit, app.outputButton, app.sourceLabel, app.sourceEdit, app.sourceButton, app.threadLabel, app.threadEdit, app.extractButton, app.cancelButton, app.statusLabel, app.progressBar, app.logEdit}
+	all := []uintptr{app.titleLabel, app.subtitleLabel, app.inputLabel, app.inputEdit, app.loadButton, app.browseButton, app.infoGroup, app.partitionLabel, app.searchLabel, app.searchEdit, app.selectAllButton, app.selectNoneButton, app.partitionList, app.outputLabel, app.outputEdit, app.outputButton, app.threadLabel, app.threadEdit, app.extractButton, app.cancelButton, app.statusLabel, app.progressBar, app.logEdit}
 	all = append(all, app.infoLabels[:]...)
 	all = append(all, app.infoValues[:]...)
 	for _, control := range all {
@@ -94,24 +89,20 @@ func (app *application) layout() {
 	move(app.partitionLabel, margin, 254, 100, 24)
 	move(app.searchLabel, margin+104, 254, 94, 24)
 	searchX := margin + 202
-	searchRight := width - margin - 302
+	searchRight := width - margin - 168
 	searchWidth := searchRight - searchX
 	if searchWidth < 100 {
 		searchWidth = 100
 	}
 	move(app.searchEdit, searchX, 250, searchWidth, 28)
-	move(app.selectBootButton, width-margin-294, 250, 126, 28)
 	move(app.selectAllButton, width-margin-160, 250, 74, 28)
 	move(app.selectNoneButton, width-margin-80, 250, 80, 28)
-	listBottom := height - 260
+	listBottom := height - 226
 	move(app.partitionList, margin, 282, width-2*margin, listBottom-282)
 
-	move(app.outputLabel, margin, height-250, 108, 25)
-	move(app.outputEdit, margin+110, height-253, width-2*margin-210, 28)
-	move(app.outputButton, width-margin-92, height-253, 92, 29)
-	move(app.sourceLabel, margin, height-216, 118, 25)
-	move(app.sourceEdit, margin+120, height-219, width-2*margin-220, 28)
-	move(app.sourceButton, width-margin-92, height-219, 92, 29)
+	move(app.outputLabel, margin, height-216, 108, 25)
+	move(app.outputEdit, margin+110, height-219, width-2*margin-210, 28)
+	move(app.outputButton, width-margin-92, height-219, 92, 29)
 	move(app.threadLabel, margin, height-180, 68, 25)
 	move(app.threadEdit, margin+70, height-183, 72, 28)
 	move(app.extractButton, width-margin-222, height-184, 134, 31)

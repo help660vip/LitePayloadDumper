@@ -13,13 +13,10 @@ const (
 	idBrowse       = 101
 	idSelectAll    = 102
 	idSelectNone   = 103
-	idSelectBoot   = 104
 	idLoad         = 105
 	idSearch       = 106
 	idOutput       = 110
 	idOutputBrowse = 111
-	idSource       = 112
-	idSourceBrowse = 113
 	idThreads      = 120
 	idExtract      = 121
 	idCancel       = 122
@@ -45,14 +42,10 @@ type application struct {
 	searchEdit       uintptr
 	selectAllButton  uintptr
 	selectNoneButton uintptr
-	selectBootButton uintptr
 	partitionList    uintptr
 	outputLabel      uintptr
 	outputEdit       uintptr
 	outputButton     uintptr
-	sourceLabel      uintptr
-	sourceEdit       uintptr
-	sourceButton     uintptr
 	threadLabel      uintptr
 	threadEdit       uintptr
 	extractButton    uintptr
@@ -91,6 +84,16 @@ func runApplication() {
 	procInitCommonControlsEx.Call(uintptr(unsafe.Pointer(&controls)))
 	instance, _, _ := procGetModuleHandle.Call(0)
 	cursor, _, _ := procLoadCursor.Call(0, idcArrow)
+	largeIcon := loadIconResource(instance, 1, 32, 32)
+	smallIcon := loadIconResource(instance, 1, 16, 16)
+	defer func() {
+		if largeIcon != 0 {
+			procDestroyIcon.Call(largeIcon)
+		}
+		if smallIcon != 0 && smallIcon != largeIcon {
+			procDestroyIcon.Call(smallIcon)
+		}
+	}()
 	className := wstr("LitePayloadDumperWindow")
 	wc := wndClassEx{
 		Size:       uint32(unsafe.Sizeof(wndClassEx{})),
@@ -100,9 +103,11 @@ func runApplication() {
 		Cursor:     cursor,
 		Background: colorBtnFace + 1,
 		ClassName:  className,
+		Icon:       largeIcon,
+		IconSmall:  smallIcon,
 	}
 	if result, _, _ := procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc))); result == 0 {
-		showMessage(0, "Payload 分区提取器", "无法注册窗口类。", mbOK|mbIconError)
+		showMessage(0, "LitePayloadDumper", "无法注册窗口类。", mbOK|mbIconError)
 		return
 	}
 
@@ -113,9 +118,9 @@ func runApplication() {
 	screenH, _, _ := procGetSystemMetrics.Call(1)
 	x := (int32(screenW) - width) / 2
 	y := (int32(screenH) - height) / 2
-	hwnd := createWindow(wsExAcceptFiles, "LitePayloadDumperWindow", "LitePayloadDumper - Payload 分区提取器", wsOverlappedWindow|wsClipChildren, x, y, width, height, 0, 0, instance)
+	hwnd := createWindow(wsExAcceptFiles, "LitePayloadDumperWindow", "LitePayloadDumper", wsOverlappedWindow|wsClipChildren, x, y, width, height, 0, 0, instance)
 	if hwnd == 0 {
-		showMessage(0, "Payload 分区提取器", "无法创建主窗口。", mbOK|mbIconError)
+		showMessage(0, "LitePayloadDumper", "无法创建主窗口。", mbOK|mbIconError)
 		return
 	}
 	app.hwnd = hwnd
@@ -133,12 +138,35 @@ func runApplication() {
 		if int32(result) <= 0 {
 			break
 		}
+		if app.handleEditShortcut(&message) {
+			continue
+		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&message)))
 		procDispatchMessage.Call(uintptr(unsafe.Pointer(&message)))
 	}
 	if app.font != 0 {
 		procDeleteObject.Call(app.font)
 	}
+}
+
+func (app *application) handleEditShortcut(message *msg) bool {
+	if message == nil || message.Message != wmKeyDown || message.WParam != vkA {
+		return false
+	}
+	state, _, _ := procGetKeyState.Call(vkControl)
+	if !app.isSelectAllShortcut(message, uint16(state)&0x8000 != 0) {
+		return false
+	}
+	sendMessage(message.Hwnd, emSetSel, 0, ^uintptr(0))
+	return true
+}
+
+func (app *application) isSelectAllShortcut(message *msg, controlDown bool) bool {
+	return controlDown && message != nil && message.Message == wmKeyDown && message.WParam == vkA && app.isEditableControl(message.Hwnd)
+}
+
+func (app *application) isEditableControl(hwnd uintptr) bool {
+	return hwnd != 0 && (hwnd == app.inputEdit || hwnd == app.searchEdit || hwnd == app.outputEdit || hwnd == app.threadEdit)
 }
 
 func windowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {

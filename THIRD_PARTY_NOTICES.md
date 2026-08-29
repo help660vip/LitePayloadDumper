@@ -13,3 +13,11 @@ The local copy was adapted to support cancellation/progress callbacks, random-ac
 
 The generated Chrome OS update metadata declarations include Android Open Source Project material under Apache License 2.0; their original copyright and license header is retained in the source file.
 
+## go-winres
+
+The Windows icon, manifest and version resource are generated with `github.com/tc-hib/go-winres` v0.3.3.
+
+- License: 0BSD
+- Upstream: <https://github.com/tc-hib/go-winres>
+
+`go-winres` is a build-time tool and is not included as a runtime dependency.

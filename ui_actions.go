@@ -37,22 +37,16 @@ func (app *application) handleCommand(id, notification int) {
 			if input := strings.TrimSpace(getText(app.inputEdit)); input != "" {
 				app.loadFile(input)
 			} else {
-				showMessage(app.hwnd, "请输入固件", "请粘贴在线 OTA URL，或选择本地固件文件。", mbOK|mbIconInfo)
+				showMessage(app.hwnd, "请选择固件", "请选择本地固件，或粘贴在线地址。", mbOK|mbIconInfo)
 			}
 		}
 	case idSelectAll:
 		app.setAllChecks(true)
 	case idSelectNone:
 		app.setAllChecks(false)
-	case idSelectBoot:
-		app.selectBootPartitions()
 	case idOutputBrowse:
 		if folder := chooseFolder(app.hwnd, "选择分区镜像保存目录"); folder != "" {
 			setText(app.outputEdit, folder)
-		}
-	case idSourceBrowse:
-		if folder := chooseFolder(app.hwnd, "选择增量 OTA 对应的旧镜像目录"); folder != "" {
-			setText(app.sourceEdit, folder)
 		}
 	case idExtract:
 		app.startExtraction()
@@ -64,8 +58,8 @@ func (app *application) handleCommand(id, notification int) {
 func (app *application) loadFile(filename string) {
 	filename = strings.TrimSpace(filename)
 	if isRemoteInput(filename) && isTGZInput(filename) {
-		warning := "TGZ 是单一 gzip 串流，没有 ZIP 中央目录，无法随机跳到某个分区。\r\n\r\n解析在线 TGZ 必须完整缓存一次到系统临时目录；之后提取不会再次下载，退出程序时会自动删除缓存。\r\n\r\n是否继续？"
-		if showMessage(app.hwnd, "在线 TGZ 需要完整缓存", warning, mbYesNo|mbIconQuestion) != idYes {
+		warning := "在线 TGZ 需要先完整缓存到临时目录。文件只下载一次，取消或退出时自动清理。是否继续？"
+		if showMessage(app.hwnd, "读取在线 TGZ", warning, mbYesNo|mbIconQuestion) != idYes {
 			return
 		}
 	}
@@ -176,7 +170,7 @@ func (app *application) loadFile(filename string) {
 				app.appendLog("构建指纹：" + details.Info.Fingerprint)
 			}
 			if details.Info.IsDelta {
-				app.appendLog("提示：这是增量 OTA；标记为“需旧镜像”的分区必须提供旧镜像目录。")
+				app.appendLog("检测到增量 OTA；需要旧镜像的分区不支持提取，请使用完整固件。")
 			}
 			if app.closeAfterCancel {
 				procDestroyWindow.Call(app.hwnd)
@@ -230,7 +224,7 @@ func (app *application) populatePartitions() {
 		if len(part.UnsupportedOps) > 0 {
 			status = "暂不支持：" + strings.Join(part.UnsupportedOps, ", ")
 		} else if part.NeedsSource {
-			status = "需旧镜像（增量）"
+			status = "增量分区（不支持）"
 		}
 		addListItem(app.partitionList, row, []string{part.Name, formatBytes(part.Size), fmt.Sprint(part.Operations), status}, app.partitionChecks[part.Name])
 	}
@@ -295,20 +289,6 @@ func (app *application) setAllChecks(checked bool) {
 	}
 }
 
-func (app *application) selectBootPartitions() {
-	if app.busy {
-		return
-	}
-	common := map[string]bool{"boot": true, "init_boot": true, "vendor_boot": true, "dtbo": true, "vbmeta": true, "vbmeta_system": true}
-	app.partitionChecks = make(map[string]bool, len(app.partitions))
-	for _, part := range app.partitions {
-		app.partitionChecks[part.Name] = common[part.Name]
-	}
-	for row, part := range app.visiblePartitions {
-		setListChecked(app.partitionList, row, common[part.Name])
-	}
-}
-
 func (app *application) selectedPartitions() ([]string, []PartitionItem) {
 	app.syncVisibleChecks()
 	var names []string
@@ -349,6 +329,10 @@ func (app *application) startExtraction() {
 			showMessage(app.hwnd, "暂不支持", item.Name+" 包含当前内核不支持的操作："+strings.Join(item.UnsupportedOps, ", "), mbOK|mbIconError)
 			return
 		}
+		if item.NeedsSource {
+			showMessage(app.hwnd, "不支持增量分区", item.Name+" 需要旧版本镜像。本工具仅提取完整固件，请改用对应的完整包。", mbOK|mbIconInfo)
+			return
+		}
 	}
 	threads, threadErr := app.selectedThreads()
 	if threadErr != nil {
@@ -361,20 +345,6 @@ func (app *application) startExtraction() {
 		showMessage(app.hwnd, "未选择目录", "请选择分区镜像保存目录。", mbOK|mbIconInfo)
 		return
 	}
-	sourceDir := strings.TrimSpace(getText(app.sourceEdit))
-	for _, item := range items {
-		if item.NeedsSource && sourceDir == "" {
-			showMessage(app.hwnd, "需要旧镜像", "所选增量分区需要旧版本镜像。请选择旧镜像目录，目录内文件名应为 分区名.img。", mbOK|mbIconInfo)
-			return
-		}
-	}
-	if sourceDir != "" {
-		if stat, err := os.Stat(sourceDir); err != nil || !stat.IsDir() {
-			showMessage(app.hwnd, "旧镜像目录无效", "请选择存在的旧镜像目录。", mbOK|mbIconError)
-			return
-		}
-	}
-
 	overwriteCount := 0
 	for _, name := range names {
 		if _, err := os.Stat(filepath.Join(outputDir, name+".img")); err == nil {
@@ -424,7 +394,7 @@ func (app *application) startExtraction() {
 	}
 
 	go func() {
-		err := extractPackageWithItems(ctx, app.details.Path, outputDir, sourceDir, names, items, threads, progressCallback)
+		err := extractPackageWithItems(ctx, app.details.Path, outputDir, "", names, items, threads, progressCallback)
 		app.queueUI(func() {
 			app.cancel = nil
 			app.setWorking(false, false)
@@ -492,7 +462,7 @@ func (app *application) cancelExtraction() {
 
 func (app *application) setWorking(working, cancelable bool) {
 	app.busy = working
-	for _, hwnd := range []uintptr{app.inputEdit, app.loadButton, app.browseButton, app.searchEdit, app.partitionList, app.selectBootButton, app.selectAllButton, app.selectNoneButton, app.outputEdit, app.outputButton, app.sourceEdit, app.sourceButton, app.threadEdit, app.extractButton} {
+	for _, hwnd := range []uintptr{app.inputEdit, app.loadButton, app.browseButton, app.searchEdit, app.partitionList, app.selectAllButton, app.selectNoneButton, app.outputEdit, app.outputButton, app.threadEdit, app.extractButton} {
 		enable(hwnd, !working)
 	}
 	enable(app.cancelButton, working && cancelable)

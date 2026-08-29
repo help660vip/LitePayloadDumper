@@ -13,6 +13,7 @@ const (
 	wmSetFocus  = 0x0007
 	wmClose     = 0x0010
 	wmGetMinMax = 0x0024
+	wmKeyDown   = 0x0100
 	wmCommand   = 0x0111
 	wmNotify    = 0x004E
 	wmDropFiles = 0x0233
@@ -57,6 +58,7 @@ const (
 	cwUseDefault = 0x80000000
 	colorBtnFace = 15
 	idcArrow     = 32512
+	imageIcon    = 1
 
 	mbOK           = 0x00000000
 	mbIconError    = 0x00000010
@@ -64,6 +66,10 @@ const (
 	mbYesNo        = 0x00000004
 	mbIconQuestion = 0x00000020
 	idYes          = 6
+
+	vkControl = 0x11
+	vkDelete  = 0x2E
+	vkA       = 0x41
 
 	bnClicked = 0
 	enChange  = 0x0300
@@ -248,9 +254,12 @@ var (
 	procEnableWindow        = user32.NewProc("EnableWindow")
 	procGetClientRect       = user32.NewProc("GetClientRect")
 	procLoadCursor          = user32.NewProc("LoadCursorW")
+	procLoadImage           = user32.NewProc("LoadImageW")
 	procMessageBox          = user32.NewProc("MessageBoxW")
 	procSetFocus            = user32.NewProc("SetFocus")
+	procGetKeyState         = user32.NewProc("GetKeyState")
 	procDestroyWindow       = user32.NewProc("DestroyWindow")
+	procDestroyIcon         = user32.NewProc("DestroyIcon")
 	procSetProcessDPIAware  = user32.NewProc("SetProcessDPIAware")
 	procGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
 
@@ -331,6 +340,11 @@ func createUIFont() uintptr {
 		uintptr(unsafe.Pointer(wstr("Microsoft YaHei UI"))),
 	)
 	return font
+}
+
+func loadIconResource(instance, id uintptr, width, height int32) uintptr {
+	icon, _, _ := procLoadImage.Call(instance, id, imageIcon, uintptr(width), uintptr(height), 0)
+	return icon
 }
 
 func applyFont(hwnd, font uintptr) {
