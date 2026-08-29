@@ -177,19 +177,29 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
+            adb shell input keyevent 224 || true
+            adb shell wm dismiss-keyguard || true
+            adb shell input keyevent 82 || true
             adb install -r dist/LitePayloadDumper_Android.apk
             adb shell am start -W -n com.help660.litepayloaddumper/.MainActivity | tee android-launch.txt
             grep -q "Status: ok" android-launch.txt
+            sleep 3
+            adb shell dumpsys activity activities > android-activity.txt
+            adb shell ps > android-processes.txt
             adb shell uiautomator dump /sdcard/litepayloaddumper-ui.xml
             adb pull /sdcard/litepayloaddumper-ui.xml android-ui.xml
-            grep -q "LitePayloadDumper" android-ui.xml
-            grep -q "读取固件" android-ui.xml
             adb exec-out screencap -p > "android-api-${{ matrix.api }}.png"
+            cat android-ui.xml
+            grep -q "com.help660.litepayloaddumper/.MainActivity" android-activity.txt
+            grep -q "com.help660.litepayloaddumper" android-processes.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Android-smoke-api-${{ matrix.api }}
           path: |
             android-launch.txt
+            android-activity.txt
+            android-processes.txt
             android-ui.xml
             android-api-${{ matrix.api }}.png
           if-no-files-found: error
