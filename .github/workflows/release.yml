@@ -157,7 +157,7 @@ jobs:
   test_android:
     name: Test Android API ${{ matrix.api }}
     needs: build_android
-    runs-on: ubuntu-latest
+    runs-on: macos-15-intel
     strategy:
       fail-fast: false
       matrix:
@@ -181,9 +181,12 @@ jobs:
             adb shell wm dismiss-keyguard || true
             adb shell input keyevent 82 || true
             adb install -r dist/LitePayloadDumper_Android.apk
-            adb shell am start -W -n com.help660.litepayloaddumper/.MainActivity | tee android-launch.txt
-            grep -q "Status: ok" android-launch.txt
-            sleep 3
+            adb shell am force-stop com.android.launcher3 || true
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
+            adb shell am start -n com.help660.litepayloaddumper/.MainActivity | tee android-launch.txt
+            sleep 5
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
+            sleep 1
             adb shell dumpsys activity activities > android-activity.txt
             adb shell ps > android-processes.txt
             adb shell uiautomator dump /sdcard/litepayloaddumper-ui.xml
@@ -192,6 +195,7 @@ jobs:
             cat android-ui.xml
             grep -q "com.help660.litepayloaddumper/.MainActivity" android-activity.txt
             grep -q "com.help660.litepayloaddumper" android-processes.txt
+            grep -q 'package="com.help660.litepayloaddumper"' android-ui.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
