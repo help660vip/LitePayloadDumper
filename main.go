@@ -32,7 +32,7 @@ type application struct {
 
 	titleLabel       uintptr
 	subtitleLabel    uintptr
-	githubButton     uintptr
+	githubLink       uintptr
 	inputLabel       uintptr
 	inputEdit        uintptr
 	loadButton       uintptr
@@ -182,6 +182,18 @@ func windowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		case wmCommand:
 			app.handleCommand(int(loword(wParam)), int(hiword(wParam)))
 			return 0
+		case wmDrawItem:
+			item := (*drawItemStruct)(unsafe.Pointer(lParam))
+			if item != nil && item.ControlID == idGitHub {
+				drawGitHubLink(item, app.font)
+				return 1
+			}
+		case wmSetCursor:
+			if wParam == app.githubLink {
+				cursor, _, _ := procLoadCursor.Call(0, idcHand)
+				procSetCursor.Call(cursor)
+				return 1
+			}
 		case wmDropFiles:
 			if filename := draggedFile(wParam); filename != "" && !app.busy {
 				app.loadFile(filename)

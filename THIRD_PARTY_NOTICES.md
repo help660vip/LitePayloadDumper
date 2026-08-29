@@ -21,3 +21,11 @@ The Windows icon, manifest and version resource are generated with `github.com/t
 - Upstream: <https://github.com/tc-hib/go-winres>
 
 `go-winres` is a build-time tool and is not included as a runtime dependency.
+
+## GitHub Octicons
+
+The footer uses a 16-pixel GitHub mark derived from GitHub's Primer Octicons `mark-github-16` asset.
+
+- Copyright GitHub, Inc.
+- Upstream: <https://github.com/primer/octicons>
+- Brand guidelines: <https://github.com/logos>

@@ -121,6 +121,114 @@ func TestInfoLabelsHaveRoomForFullChineseText(t *testing.T) {
 	}
 }
 
+func TestGitHubFooterMarkAndText(t *testing.T) {
+	if len(githubMarkRows) != 16 {
+		t.Fatalf("GitHub mark has %d rows, want 16", len(githubMarkRows))
+	}
+	for row, bits := range githubMarkRows {
+		if bits == 0 {
+			t.Fatalf("GitHub mark row %d is empty", row)
+		}
+	}
+	if projectURL != "https://github.com/help660vip/LitePayloadDumper" {
+		t.Fatalf("unexpected project URL: %s", projectURL)
+	}
+}
+
+func TestGitHubFooterNativeLayoutAndStyle(t *testing.T) {
+	instance, _, _ := procGetModuleHandle.Call(0)
+	parent := createWindow(0, "STATIC", "", wsOverlappedWindow, 0, 0, 1000, 780, 0, 0, instance)
+	if parent == 0 {
+		t.Fatal("failed to create native parent window")
+	}
+	defer procDestroyWindow.Call(parent)
+
+	app := &application{hwnd: parent, instance: instance, font: createUIFont()}
+	if app.font == 0 {
+		t.Fatal("failed to create UI font")
+	}
+	defer procDeleteObject.Call(app.font)
+	app.createControls()
+	app.layout()
+
+	if text := getText(app.githubLink); text != "help660vip/LitePayloadDumper" {
+		t.Fatalf("GitHub footer text = %q", text)
+	}
+	getWindowLongPtr := user32.NewProc("GetWindowLongPtrW")
+	style, _, _ := getWindowLongPtr.Call(app.githubLink, ^uintptr(15))
+	if style&ssNotify == 0 || style&0x1f != ssOwnerDraw {
+		t.Fatalf("GitHub footer style %#x is not an owner-drawn clickable static", style)
+	}
+
+	getWindowRect := user32.NewProc("GetWindowRect")
+	screenToClient := user32.NewProc("ScreenToClient")
+	var bounds rect
+	if ok, _, _ := getWindowRect.Call(app.githubLink, uintptr(unsafe.Pointer(&bounds))); ok == 0 {
+		t.Fatal("failed to read GitHub footer bounds")
+	}
+	topLeft := point{X: bounds.Left, Y: bounds.Top}
+	bottomRight := point{X: bounds.Right, Y: bounds.Bottom}
+	screenToClient.Call(parent, uintptr(unsafe.Pointer(&topLeft)))
+	screenToClient.Call(parent, uintptr(unsafe.Pointer(&bottomRight)))
+	clientWidth, clientHeight := getClientSize(parent)
+	if width := bottomRight.X - topLeft.X; width != 278 {
+		t.Fatalf("GitHub footer width = %d, want 278", width)
+	}
+	if bottomRight.Y != clientHeight-15 {
+		t.Fatalf("GitHub footer bottom = %d, client height = %d", bottomRight.Y, clientHeight)
+	}
+	if topLeft.X != (clientWidth-278)/2 {
+		t.Fatalf("GitHub footer is not horizontally centered: left=%d client=%d", topLeft.X, clientWidth)
+	}
+}
+
+func TestDrawGitHubLinkRendersMark(t *testing.T) {
+	getDC := user32.NewProc("GetDC")
+	releaseDC := user32.NewProc("ReleaseDC")
+	createCompatibleDC := gdi32.NewProc("CreateCompatibleDC")
+	createCompatibleBitmap := gdi32.NewProc("CreateCompatibleBitmap")
+	deleteDC := gdi32.NewProc("DeleteDC")
+	getPixel := gdi32.NewProc("GetPixel")
+
+	screenDC, _, _ := getDC.Call(0)
+	if screenDC == 0 {
+		t.Fatal("failed to get screen DC")
+	}
+	defer releaseDC.Call(0, screenDC)
+	memoryDC, _, _ := createCompatibleDC.Call(screenDC)
+	if memoryDC == 0 {
+		t.Fatal("failed to create memory DC")
+	}
+	defer deleteDC.Call(memoryDC)
+	bitmap, _, _ := createCompatibleBitmap.Call(screenDC, 278, 25)
+	if bitmap == 0 {
+		t.Fatal("failed to create footer bitmap")
+	}
+	previousBitmap, _, _ := procSelectObject.Call(memoryDC, bitmap)
+	defer func() {
+		procSelectObject.Call(memoryDC, previousBitmap)
+		procDeleteObject.Call(bitmap)
+	}()
+	font := createUIFont()
+	if font == 0 {
+		t.Fatal("failed to create footer font")
+	}
+	defer procDeleteObject.Call(font)
+
+	item := &drawItemStruct{DC: memoryDC, ItemRect: rect{Right: 278, Bottom: 25}}
+	drawGitHubLink(item, font)
+	markPixel, _, _ := getPixel.Call(memoryDC, 11, 4)
+	wantMark, _, _ := procGetSysColor.Call(colorWindowText)
+	if uint32(markPixel) != uint32(wantMark) {
+		t.Fatalf("GitHub mark pixel = %#x, want %#x", markPixel, wantMark)
+	}
+	backgroundPixel, _, _ := getPixel.Call(memoryDC, 5, 4)
+	wantBackground, _, _ := procGetSysColor.Call(colorBtnFace)
+	if uint32(backgroundPixel) != uint32(wantBackground) {
+		t.Fatalf("footer background pixel = %#x, want %#x", backgroundPixel, wantBackground)
+	}
+}
+
 func TestEditableControlsForSelectAllShortcut(t *testing.T) {
 	app := &application{inputEdit: 11, searchEdit: 12, outputEdit: 13, threadEdit: 14}
 	for _, handle := range []uintptr{11, 12, 13, 14} {

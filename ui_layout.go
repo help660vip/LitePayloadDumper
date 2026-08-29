@@ -7,7 +7,7 @@ func (app *application) createControls() {
 	button := child | wsTabStop | bsPushButton
 	app.titleLabel = createWindow(0, "STATIC", "LitePayloadDumper", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.subtitleLabel = createWindow(0, "STATIC", "Android 固件分区镜像提取", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
-	app.githubButton = createWindow(0, "BUTTON", "GitHub", button, 0, 0, 0, 0, app.hwnd, idGitHub, app.instance)
+	app.githubLink = createWindow(0, "STATIC", "help660vip/LitePayloadDumper", child|ssNotify|ssOwnerDraw, 0, 0, 0, 0, app.hwnd, idGitHub, app.instance)
 	app.inputLabel = createWindow(0, "STATIC", "固件文件或在线地址", child|ssLeft, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	app.inputEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsTabStop|esAutoHScroll, 0, 0, 0, 0, app.hwnd, idInput, app.instance)
 	app.loadButton = createWindow(0, "BUTTON", "读取", button, 0, 0, 0, 0, app.hwnd, idLoad, app.instance)
@@ -49,7 +49,7 @@ func (app *application) createControls() {
 	app.logEdit = createWindow(wsExClientEdge, "EDIT", "", child|wsVScroll|esMultiline|esReadOnly|esAutoVScroll, 0, 0, 0, 0, app.hwnd, 0, app.instance)
 	sendMessage(app.logEdit, emSetLimitText, 1024*1024, 0)
 
-	all := []uintptr{app.titleLabel, app.subtitleLabel, app.githubButton, app.inputLabel, app.inputEdit, app.loadButton, app.browseButton, app.infoGroup, app.partitionLabel, app.searchLabel, app.searchEdit, app.selectAllButton, app.selectNoneButton, app.partitionList, app.outputLabel, app.outputEdit, app.outputButton, app.threadLabel, app.threadEdit, app.extractButton, app.cancelButton, app.statusLabel, app.progressBar, app.logEdit}
+	all := []uintptr{app.titleLabel, app.subtitleLabel, app.githubLink, app.inputLabel, app.inputEdit, app.loadButton, app.browseButton, app.infoGroup, app.partitionLabel, app.searchLabel, app.searchEdit, app.selectAllButton, app.selectNoneButton, app.partitionList, app.outputLabel, app.outputEdit, app.outputButton, app.threadLabel, app.threadEdit, app.extractButton, app.cancelButton, app.statusLabel, app.progressBar, app.logEdit}
 	all = append(all, app.infoLabels[:]...)
 	all = append(all, app.infoValues[:]...)
 	for _, control := range all {
@@ -66,8 +66,7 @@ func (app *application) layout() {
 		return
 	}
 	margin := int32(18)
-	move(app.titleLabel, margin, 12, width-2*margin-100, 27)
-	move(app.githubButton, width-margin-92, 10, 92, 29)
+	move(app.titleLabel, margin, 12, width-2*margin, 27)
 	move(app.subtitleLabel, margin, 41, width-2*margin, 22)
 	move(app.inputLabel, margin, 67, width-2*margin, 21)
 	move(app.inputEdit, margin, 90, width-2*margin-194, 28)
@@ -112,5 +111,7 @@ func (app *application) layout() {
 	move(app.cancelButton, width-margin-82, height-184, 82, 31)
 	move(app.statusLabel, margin, height-148, width-2*margin, 21)
 	move(app.progressBar, margin, height-126, width-2*margin, 17)
-	move(app.logEdit, margin, height-102, width-2*margin, 86)
+	move(app.logEdit, margin, height-102, width-2*margin, 55)
+	githubWidth := int32(278)
+	move(app.githubLink, (width-githubWidth)/2, height-40, githubWidth, 25)
 }

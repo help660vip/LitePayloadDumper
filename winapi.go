@@ -12,7 +12,9 @@ const (
 	wmSize      = 0x0005
 	wmSetFocus  = 0x0007
 	wmClose     = 0x0010
+	wmSetCursor = 0x0020
 	wmGetMinMax = 0x0024
+	wmDrawItem  = 0x002B
 	wmKeyDown   = 0x0100
 	wmCommand   = 0x0111
 	wmNotify    = 0x004E
@@ -42,8 +44,10 @@ const (
 	esReadOnly    = 0x0800
 	esNumber      = 0x2000
 
-	ssLeft   = 0x00000000
-	ssCenter = 0x00000001
+	ssLeft      = 0x00000000
+	ssCenter    = 0x00000001
+	ssNotify    = 0x00000100
+	ssOwnerDraw = 0x0000000D
 
 	cbsDropDownList = 0x0003
 	cbsHasStrings   = 0x0200
@@ -54,11 +58,20 @@ const (
 	lvsExCheckBoxes    = 0x00000004
 	lvsExDoubleBuffer  = 0x00010000
 
-	swShow       = 5
-	cwUseDefault = 0x80000000
-	colorBtnFace = 15
-	idcArrow     = 32512
-	imageIcon    = 1
+	swShow          = 5
+	cwUseDefault    = 0x80000000
+	colorBtnFace    = 15
+	idcArrow        = 32512
+	idcHand         = 32649
+	imageIcon       = 1
+	colorWindowText = 8
+	colorHotLight   = 26
+	transparent     = 1
+	dtLeft          = 0x00000000
+	dtVCenter       = 0x00000004
+	dtSingleLine    = 0x00000020
+	dtNoPrefix      = 0x00000800
+	dtEndEllipsis   = 0x00008000
 
 	mbOK           = 0x00000000
 	mbIconError    = 0x00000010
@@ -167,6 +180,18 @@ type minMaxInfo struct {
 	MaxTrackSize point
 }
 
+type drawItemStruct struct {
+	ControlType uint32
+	ControlID   uint32
+	ItemID      uint32
+	ItemAction  uint32
+	ItemState   uint32
+	HwndItem    uintptr
+	DC          uintptr
+	ItemRect    rect
+	ItemData    uintptr
+}
+
 type initCommonControlsEx struct {
 	Size uint32
 	ICC  uint32
@@ -271,15 +296,23 @@ var (
 	procLoadImage           = user32.NewProc("LoadImageW")
 	procMessageBox          = user32.NewProc("MessageBoxW")
 	procSetFocus            = user32.NewProc("SetFocus")
+	procSetCursor           = user32.NewProc("SetCursor")
 	procGetKeyState         = user32.NewProc("GetKeyState")
 	procDestroyWindow       = user32.NewProc("DestroyWindow")
 	procDestroyIcon         = user32.NewProc("DestroyIcon")
 	procSetProcessDPIAware  = user32.NewProc("SetProcessDPIAware")
 	procGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
+	procFillRect            = user32.NewProc("FillRect")
+	procDrawText            = user32.NewProc("DrawTextW")
+	procGetSysColor         = user32.NewProc("GetSysColor")
+	procGetSysColorBrush    = user32.NewProc("GetSysColorBrush")
 
 	procGetModuleHandle      = kernel32.NewProc("GetModuleHandleW")
 	procCreateFont           = gdi32.NewProc("CreateFontW")
 	procDeleteObject         = gdi32.NewProc("DeleteObject")
+	procSelectObject         = gdi32.NewProc("SelectObject")
+	procSetBkMode            = gdi32.NewProc("SetBkMode")
+	procSetTextColor         = gdi32.NewProc("SetTextColor")
 	procInitCommonControlsEx = comctl32.NewProc("InitCommonControlsEx")
 	procGetOpenFileName      = comdlg32.NewProc("GetOpenFileNameW")
 	procSHBrowseForFolder    = shell32.NewProc("SHBrowseForFolderW")
@@ -370,6 +403,75 @@ func applyFont(hwnd, font uintptr) {
 func showMessage(owner uintptr, title, text string, flags uint32) int {
 	result, _, _ := procMessageBox.Call(owner, uintptr(unsafe.Pointer(wstr(text))), uintptr(unsafe.Pointer(wstr(title))), uintptr(flags))
 	return int(result)
+}
+
+var githubMarkRows = [...]uint16{
+	0b0000001111100000,
+	0b0000111111111000,
+	0b0001111111111100,
+	0b0011111111111110,
+	0b0111000000000110,
+	0b0111000000000111,
+	0b1111000000000111,
+	0b1110000000000111,
+	0b1110000000000111,
+	0b1111000000000111,
+	0b1111000000001111,
+	0b0111110000011111,
+	0b0110111000111110,
+	0b0011000000111100,
+	0b0001110000111000,
+	0b0000010000110000,
+}
+
+func drawGitHubLink(item *drawItemStruct, font uintptr) {
+	if item == nil || item.DC == 0 {
+		return
+	}
+	background, _, _ := procGetSysColorBrush.Call(colorBtnFace)
+	procFillRect.Call(item.DC, uintptr(unsafe.Pointer(&item.ItemRect)), background)
+
+	iconX := item.ItemRect.Left + 5
+	iconY := item.ItemRect.Top + (item.ItemRect.Bottom-item.ItemRect.Top-16)/2
+	markBrush, _, _ := procGetSysColorBrush.Call(colorWindowText)
+	for row, bits := range githubMarkRows {
+		for column := 0; column < 16; {
+			if bits&(uint16(1)<<uint(15-column)) == 0 {
+				column++
+				continue
+			}
+			start := column
+			for column < 16 && bits&(uint16(1)<<uint(15-column)) != 0 {
+				column++
+			}
+			pixelRun := rect{
+				Left:   iconX + int32(start),
+				Top:    iconY + int32(row),
+				Right:  iconX + int32(column),
+				Bottom: iconY + int32(row) + 1,
+			}
+			procFillRect.Call(item.DC, uintptr(unsafe.Pointer(&pixelRun)), markBrush)
+		}
+	}
+
+	previousFont, _, _ := procSelectObject.Call(item.DC, font)
+	previousMode, _, _ := procSetBkMode.Call(item.DC, transparent)
+	linkColor, _, _ := procGetSysColor.Call(colorHotLight)
+	previousColor, _, _ := procSetTextColor.Call(item.DC, linkColor)
+	textRect := rect{
+		Left:   iconX + 25,
+		Top:    item.ItemRect.Top,
+		Right:  item.ItemRect.Right - 4,
+		Bottom: item.ItemRect.Bottom,
+	}
+	text := wstr("help660vip/LitePayloadDumper")
+	flags := uintptr(dtLeft | dtVCenter | dtSingleLine | dtNoPrefix | dtEndEllipsis)
+	procDrawText.Call(item.DC, uintptr(unsafe.Pointer(text)), ^uintptr(0), uintptr(unsafe.Pointer(&textRect)), flags)
+	procSetTextColor.Call(item.DC, previousColor)
+	procSetBkMode.Call(item.DC, previousMode)
+	if previousFont != 0 && previousFont != ^uintptr(0) {
+		procSelectObject.Call(item.DC, previousFont)
+	}
 }
 
 func openExternalURL(owner uintptr, target string) bool {

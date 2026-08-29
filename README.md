@@ -1,5 +1,10 @@
 # LitePayloadDumper
 
+[![Release](https://img.shields.io/github/v/release/help660vip/LitePayloadDumper?display_name=tag)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
+[![Build](https://github.com/help660vip/LitePayloadDumper/actions/workflows/release.yml/badge.svg)](https://github.com/help660vip/LitePayloadDumper/actions/workflows/release.yml)
+[![Windows](https://img.shields.io/badge/Windows-7%20%7C%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
+[![License](https://img.shields.io/github/license/help660vip/LitePayloadDumper)](LICENSE)
+
 这是一个 Windows 下用的 Android 固件分区提取工具。输入本地固件或在线地址，读取分区表后，勾选要导出的镜像即可。
 
 ## 下载

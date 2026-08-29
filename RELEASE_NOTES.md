@@ -1,10 +1,8 @@
-## LitePayloadDumper v1.0.2
+## LitePayloadDumper v1.0.3
 
-- 修复固件信息中的四字标签被截断
-- 在线地址优先使用 Windows 配置的下载文件夹；该目录位于 C 盘或无法读取时，改用 EXE 所在目录
-- 标题栏增加 GitHub 按钮，可直接打开项目主页
-- README 改为直接的下载、操作和限制说明
-- Logo 继续内嵌在 EXE 中，仓库不再保存原图
+- 移除标题栏中的 GitHub 按钮
+- 底部增加 GitHub 图标和 `help660vip/LitePayloadDumper` 链接，图标与文字区域均可点击
+- README 增加 Release、构建状态、Windows 和 License 徽章
 
 ### 下载
 
