@@ -180,17 +180,15 @@ jobs:
             adb shell input keyevent 224 || true
             adb shell wm dismiss-keyguard || true
             adb shell input keyevent 82 || true
-            adb install -r dist/LitePayloadDumper_Android.apk
+            adb install --no-streaming -r dist/LitePayloadDumper_Android.apk
             adb shell am force-stop com.android.launcher3 || true
-            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
             adb shell am start -n com.help660.litepayloaddumper/.MainActivity | tee android-launch.txt
             sleep 5
-            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
-            sleep 1
+            adb shell am force-stop com.android.launcher3 || true
             adb shell dumpsys activity activities > android-activity.txt
             adb shell ps > android-processes.txt
-            adb shell uiautomator dump /sdcard/litepayloaddumper-ui.xml
-            adb pull /sdcard/litepayloaddumper-ui.xml android-ui.xml
+            adb shell uiautomator dump /data/local/tmp/litepayloaddumper-ui.xml
+            adb pull /data/local/tmp/litepayloaddumper-ui.xml android-ui.xml
             adb exec-out screencap -p > "android-api-${{ matrix.api }}.png"
             cat android-ui.xml
             grep -q "com.help660.litepayloaddumper/.MainActivity" android-activity.txt
