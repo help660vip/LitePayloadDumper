@@ -3,20 +3,22 @@
 [![Release](https://img.shields.io/github/v/release/help660vip/LitePayloadDumper?display_name=tag)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
 [![Build](https://github.com/help660vip/LitePayloadDumper/actions/workflows/release.yml/badge.svg)](https://github.com/help660vip/LitePayloadDumper/actions/workflows/release.yml)
 [![Windows](https://img.shields.io/badge/Windows-7%20%7C%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
+[![Android](https://img.shields.io/badge/Android-6.0%2B-3DDC84?logo=android&logoColor=white)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
 [![License](https://img.shields.io/github/license/help660vip/LitePayloadDumper)](LICENSE)
 
-这是一个 Windows 下用的 Android 固件分区提取工具。输入本地固件或在线地址，读取分区表后，勾选要导出的镜像即可。
+这是一个 Android 固件分区提取工具，可在 Windows 和 Android 上使用。输入本地固件或在线地址，读取分区表后，勾选要导出的镜像即可。
 
 ## 下载
 
-在 [Releases](https://github.com/help660vip/LitePayloadDumper/releases) 里有两个版本：
+在 [Releases](https://github.com/help660vip/LitePayloadDumper/releases) 里下载对应版本：
 
 | 文件 | 系统 |
 | --- | --- |
 | `LitePayloadDumper_Win7.exe` | Windows 7 SP1 64 位 |
 | `LitePayloadDumper_Win10-11.exe` | Windows 10 / 11 64 位 |
+| `LitePayloadDumper_Android.apk` | Android 6.0 及以上 |
 
-都是单文件 EXE，不用安装 .NET、Java、Python、VC++ 运行库，也没有需要放在旁边的 DLL。
+Windows 版都是单文件 EXE，不用安装 .NET、Java、Python、VC++ 运行库，也没有需要放在旁边的 DLL。Android 版直接安装 APK。
 
 ## 怎么用
 
@@ -28,7 +30,7 @@
 
 读取成功后，界面会列出机型、设备代号、Android 版本、系统版本、安全补丁日期和构建日期等信息。
 
-在线地址的默认保存位置取 Windows 记录的“下载”文件夹。如果这个文件夹在 C 盘，或者程序无法读取它，则改用 EXE 所在目录。本地固件仍默认保存到固件旁边。
+Windows 版读取在线地址时，默认保存到系统记录的“下载”文件夹。如果这个文件夹在 C 盘，或者程序无法读取它，则改用 EXE 所在目录。本地固件仍默认保存到固件旁边。Android 版由用户选择固件和保存目录，不申请整个存储空间的访问权限。
 
 ## 能读哪些包
 
@@ -43,7 +45,7 @@ TGZ 不能像 ZIP 那样随机读取单个文件。打开在线 TGZ 时，程序
 
 ## 已知限制
 
-- 只支持 64 位 Windows。Windows 7 需要 SP1。
+- Windows 版只支持 64 位系统，Windows 7 需要 SP1；Android 版最低支持 Android 6.0。
 - 增量 OTA 中依赖旧镜像的分区无法直接还原，请换用完整包。
 - 在线文件所在服务器必须允许 HTTP Range 请求。
 
@@ -62,6 +64,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 `
 ```powershell
 go test ./...
 ```
+
+Android APK 由 GitHub Actions 构建，项目配置在 [android](android) 目录。
 
 ## 许可
 
