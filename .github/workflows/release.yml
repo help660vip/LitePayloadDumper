@@ -127,15 +127,32 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs dist/LitePayloadDumper_Android.apk | tee dist/android-signing.txt
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" dist/android-signing.txt
           if [[ -n "$ANDROID_KEYSTORE_BASE64" ]]; then
-            grep -q "Signer #1 certificate DN: CN=help660vip, O=LitePayloadDumper" dist/android-signing.txt
+            grep -q "V2 Signer: certificate DN:.*help660vip" dist/android-signing.txt
+            grep -q "V2 Signer: certificate DN:.*LitePayloadDumper" dist/android-signing.txt
           else
-            grep -q "Signer #1 certificate DN: C=US, O=Android, CN=Android Debug" dist/android-signing.txt
+            grep -q "V2 Signer: certificate DN: C=US, O=Android, CN=Android Debug" dist/android-signing.txt
           fi
       - uses: actions/upload-artifact@v4
         with:
           name: Android
           path: dist/LitePayloadDumper_Android.apk
           if-no-files-found: error
+
+  test_online_ota:
+    name: Test live OTA init_boot extraction
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+          cache: true
+      - name: Read firmware and extract init_boot
+        env:
+          ONLINE_OTA_URL: https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/V14.0.32.0.TMCCNXM/miui_FUXI_V14.0.32.0.TMCCNXM_862e1d10a2_13.0.zip
+          ONLINE_OTA_PARTITION: init_boot
+        run: go test ./core -run 'TestOnlineOTA(FromEnvironment|ExtractionFromEnvironment)' -count=1 -v
 
   test_android:
     name: Test Android API ${{ matrix.api }}
