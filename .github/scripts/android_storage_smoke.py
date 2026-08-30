@@ -323,7 +323,14 @@ def create_and_select_test_directory(sdk):
         if editor is None or not text(editor):
             last_error = RuntimeError("新建文件夹名称没有输入成功")
             continue
-        click_dialog_text("新建")
+        # Reuse the hierarchy that confirmed the entered name. On some API 35
+        # emulator boots, requesting the same hierarchy again while the soft
+        # keyboard is closing can leave uiautomator blocked for minutes.
+        create_button = find_clickable(nodes, texts=("新建",))
+        if create_button is None:
+            last_error = RuntimeError("新建文件夹对话框没有找到“新建”按钮")
+            continue
+        tap(create_button)
         try:
             click_dialog_text("选择此目录")
             return
