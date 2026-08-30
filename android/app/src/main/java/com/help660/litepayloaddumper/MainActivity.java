@@ -330,7 +330,17 @@ public final class MainActivity extends Activity {
         int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         if (flags != 0) {
             try {
-                getContentResolver().takePersistableUriPermission(uri, flags);
+                if ((flags & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0
+                        && (flags & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) {
+                    getContentResolver().takePersistableUriPermission(uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } else if ((flags & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
+                    getContentResolver().takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } else {
+                    getContentResolver().takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                }
             } catch (SecurityException ignored) {
             }
         }
