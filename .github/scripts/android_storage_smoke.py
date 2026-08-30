@@ -250,7 +250,10 @@ def wait_for_direct_write(snapshot):
 
 
 def assert_clean(directory_path):
-    listing = adb("shell", "ls", "-a", directory_path, check=False).stdout
+    result = adb("shell", "ls", "-a", directory_path, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"无法读取应用新建的保存目录：{directory_path}\n{result.stdout.strip()}")
+    listing = result.stdout
     if "LitePayloadDumper-write-test-" in listing:
         raise RuntimeError("目录写入测试留下了临时镜像")
     if ".LitePayloadDumper-staging-" in listing:
@@ -267,8 +270,6 @@ def main():
         wait_for_app()
         directory_path = create_and_select_test_directory(sdk)
         wait_for_direct_write("direct-write")
-        if adb("shell", "test", "-d", directory_path, check=False).returncode != 0:
-            raise RuntimeError("应用没有成功新建保存目录")
         assert_clean(directory_path)
 
         adb("shell", "am", "force-stop", APP_PACKAGE)
