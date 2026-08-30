@@ -33,11 +33,16 @@ def save_snapshot(name):
         shutil.copyfile(LOCAL_XML, f"android-saf-{name}.xml")
 
 
-def center(node):
+def box(node):
     values = [int(value) for value in re.findall(r"\d+", node.attrib.get("bounds", ""))]
     if len(values) != 4:
         raise RuntimeError("界面控件没有有效坐标")
-    return (values[0] + values[2]) // 2, (values[1] + values[3]) // 2
+    return values
+
+
+def center(node):
+    left, top, right, bottom = box(node)
+    return (left + right) // 2, (top + bottom) // 2
 
 
 def tap(node):
@@ -91,7 +96,30 @@ def find_clickable(nodes, texts=(), id_suffixes=(), descriptions=()):
             return node
         if description in wanted_descriptions:
             return node
+    for label in nodes:
+        if text(label).casefold() not in wanted_texts:
+            continue
+        x, y = center(label)
+        parents = []
+        for candidate in nodes:
+            if not clickable(candidate):
+                continue
+            left, top, right, bottom = box(candidate)
+            if left <= x <= right and top <= y <= bottom:
+                parents.append(((right - left) * (bottom - top), candidate))
+        if parents:
+            return min(parents, key=lambda value: value[0])[1]
     return None
+
+
+def wait_for_clickable_text(values, attempts=10):
+    for _ in range(attempts):
+        nodes = dump_ui()
+        result = find_clickable(nodes, texts=values)
+        if result is not None:
+            return result, nodes
+        time.sleep(1)
+    return None, nodes
 
 
 def choose_downloads_tree():
@@ -105,10 +133,34 @@ def choose_downloads_tree():
         )
         if drawer is not None:
             tap(drawer)
-            nodes = dump_ui()
-            downloads = find_clickable(nodes, texts=("Downloads", "下载"))
+            downloads, nodes = wait_for_clickable_text(("Downloads", "下载"))
     if downloads is not None:
         tap(downloads)
+        nodes = dump_ui()
+    else:
+        adb("shell", "input", "keyevent", "4")
+        nodes = dump_ui()
+        more = find_clickable(nodes, descriptions=("More options", "更多选项"))
+        if more is not None:
+            tap(more)
+            show_storage, nodes = wait_for_clickable_text(
+                ("Show internal storage", "显示内部存储空间", "显示内部存储")
+            )
+            if show_storage is not None:
+                tap(show_storage)
+                nodes = dump_ui()
+        drawer = find_clickable(
+            nodes,
+            descriptions=("Show roots", "Open navigation drawer", "显示根目录", "打开导航抽屉"),
+        )
+        if drawer is not None:
+            tap(drawer)
+        storage, nodes = wait_for_clickable_text(
+            ("Internal storage", "内部存储空间", "内部存储", "Pixel_2")
+        )
+        if storage is None:
+            raise RuntimeError("目录授权页没有 Downloads 或内部存储根目录")
+        tap(storage)
         nodes = dump_ui()
 
     select = find_clickable(
@@ -157,7 +209,8 @@ def main():
         choose_downloads_tree()
         wait_for_write_confirmation("granted")
 
-        listing = adb("shell", "ls", "-a", "/sdcard/Download").stdout
+        listing = adb("shell", "ls", "-a", "/sdcard").stdout
+        listing += adb("shell", "ls", "-a", "/sdcard/Download").stdout
         if "LitePayloadDumper-write-test-" in listing:
             raise RuntimeError("目录写入测试留下了未清理文件")
 
