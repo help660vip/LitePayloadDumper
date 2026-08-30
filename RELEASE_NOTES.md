@@ -1,7 +1,7 @@
-## LitePayloadDumper v1.1.0
+## LitePayloadDumper v1.1.1
 
 - 修复已知问题
-- 新增 Android 版本，可读取在线或本地固件并提取所选分区
+- 修复 Android 选择保存目录后无法创建镜像的问题
 
 ### 下载
 

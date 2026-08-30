@@ -11,6 +11,7 @@ import android.system.Os;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -41,9 +42,54 @@ final class SafOutputBridge implements Closeable {
             }
             return bridge;
         } catch (Exception error) {
-            bridge.deleteDocuments(new HashSet<>());
             bridge.close();
+            bridge.deleteDocuments(new HashSet<>());
             throw error;
+        }
+    }
+
+    static void verifyWritable(Context context, Uri tree) throws Exception {
+        if (tree == null || !DocumentsContract.isTreeUri(tree)) {
+            throw new IOException("所选位置不是可写目录");
+        }
+        String probeName = "LitePayloadDumper-write-test-" + UUID.randomUUID();
+        List<String> probes = new ArrayList<>();
+        probes.add(probeName);
+        SafOutputBridge bridge = null;
+        Exception failure = null;
+        try {
+            bridge = create(context, tree, probes);
+            File probe = new File(bridge.path(), probeName + ".img");
+            try (RandomAccessFile output = new RandomAccessFile(probe, "rw")) {
+                output.setLength(0);
+                output.write(new byte[]{'L', 'P', 'D'});
+                output.getFD().sync();
+            }
+        } catch (SecurityException error) {
+            failure = new IOException("目录写入授权无效", error);
+        } catch (Exception error) {
+            failure = error;
+        } finally {
+            if (bridge != null) {
+                bridge.close();
+                Uri document = bridge.documents.get(probeName);
+                if (document != null) {
+                    try {
+                        if (DocumentsContract.deleteDocument(bridge.resolver, document)) {
+                            bridge.documents.remove(probeName);
+                        } else if (failure == null) {
+                            failure = new IOException("目录提供方不允许删除测试文件");
+                        }
+                    } catch (Exception error) {
+                        if (failure == null) {
+                            failure = new IOException("目录删除授权无效", error);
+                        }
+                    }
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
         }
     }
 
@@ -52,6 +98,7 @@ final class SafOutputBridge implements Closeable {
     }
 
     void deleteIncomplete(Set<String> completed) {
+        close();
         deleteDocuments(completed);
     }
 
@@ -66,18 +113,28 @@ final class SafOutputBridge implements Closeable {
         if (document == null) {
             throw new IOException("无法创建 " + displayName);
         }
-        ParcelFileDescriptor descriptor = resolver.openFileDescriptor(document, "rwt");
+        ParcelFileDescriptor descriptor = resolver.openFileDescriptor(document, "rw");
         if (descriptor == null) {
             DocumentsContract.deleteDocument(resolver, document);
             throw new IOException("无法打开 " + displayName);
         }
         File link = new File(directory, displayName);
-        Os.symlink("/proc/self/fd/" + descriptor.getFd(), link.getAbsolutePath());
+        try {
+            Os.symlink("/proc/self/fd/" + descriptor.getFd(), link.getAbsolutePath());
+            try (RandomAccessFile output = new RandomAccessFile(link, "rw")) {
+                output.setLength(0);
+            }
+        } catch (Exception error) {
+            link.delete();
+            descriptor.close();
+            DocumentsContract.deleteDocument(resolver, document);
+            throw new IOException("所选目录不支持写入 " + displayName, error);
+        }
         descriptors.add(descriptor);
         documents.put(partition, document);
     }
 
-    private Uri findChild(Uri tree, String displayName) {
+    private Uri findChild(Uri tree, String displayName) throws Exception {
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
         String[] projection = {
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -85,15 +142,13 @@ final class SafOutputBridge implements Closeable {
         };
         try (Cursor cursor = resolver.query(children, projection, null, null, null)) {
             if (cursor == null) {
-                return null;
+                throw new IOException("无法读取保存目录");
             }
             while (cursor.moveToNext()) {
                 if (displayName.equals(cursor.getString(1))) {
                     return DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0));
                 }
             }
-        } catch (Exception ignored) {
-            return null;
         }
         return null;
     }

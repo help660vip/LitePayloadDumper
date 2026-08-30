@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.UriPermission;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -95,6 +96,7 @@ public final class MainActivity extends Activity {
     private volatile SafOutputBridge activeBridge;
     private volatile boolean busy;
     private volatile boolean cancelRequested;
+    private boolean validatingOutput;
     private String searchQuery = "";
 
     private final Listener nativeListener = event -> {
@@ -120,6 +122,7 @@ public final class MainActivity extends Activity {
         }
         restoreOutputTree();
         buildInterface();
+        validateRestoredOutputTree();
     }
 
     private void buildInterface() {
@@ -216,7 +219,7 @@ public final class MainActivity extends Activity {
         outputValue.setGravity(Gravity.CENTER_VERTICAL);
         outputValue.setTextIsSelectable(true);
         outputRow.addView(outputValue, new LinearLayout.LayoutParams(0, dp(48), 1));
-        chooseOutputButton = button("选择目录");
+        chooseOutputButton = button("授权目录");
         chooseOutputButton.setOnClickListener(view -> chooseOutput());
         outputRow.addView(chooseOutputButton, margin(dp(96), dp(48), 8, 0, 0, 0));
         content.addView(outputRow);
@@ -279,10 +282,17 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseOutput() {
+        if (busy || validatingOutput) {
+            return;
+        }
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        startActivityForResult(intent, REQUEST_OUTPUT);
+        try {
+            startActivityForResult(intent, REQUEST_OUTPUT);
+        } catch (ActivityNotFoundException error) {
+            showError("系统没有可用的目录授权界面");
+        }
     }
 
     @Override
@@ -294,7 +304,7 @@ public final class MainActivity extends Activity {
         }
         Uri uri = data.getData();
         int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        if (flags != 0) {
+        if (requestCode == REQUEST_INPUT && flags != 0) {
             try {
                 getContentResolver().takePersistableUriPermission(uri, flags);
             } catch (SecurityException ignored) {
@@ -308,11 +318,90 @@ public final class MainActivity extends Activity {
             inputEdit.setSelection(inputEdit.length());
             appendLog("已选择本地固件：" + selectedInputName);
         } else if (requestCode == REQUEST_OUTPUT) {
-            outputTree = uri;
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PREF_OUTPUT_TREE, uri.toString()).apply();
-            outputValue.setText(displayName(uri));
-            appendLog("保存目录：" + outputValue.getText());
+            if ((flags & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == 0) {
+                showError("系统没有授予目录写入权限，请重新选择并点击“使用此文件夹”或“允许”");
+                return;
+            }
+            boolean persisted = false;
+            if ((data.getFlags() & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                try {
+                    getContentResolver().takePersistableUriPermission(uri, flags);
+                    persisted = hasPersistedWritePermission(uri);
+                } catch (SecurityException ignored) {
+                    // Some third-party document providers only grant access for the current app session.
+                }
+            }
+            validateOutputTree(uri, persisted, outputTree, true);
         }
+    }
+
+    private void validateRestoredOutputTree() {
+        Uri restored = outputTree;
+        if (restored != null) {
+            validateOutputTree(restored, true, null, false);
+        }
+    }
+
+    private void validateOutputTree(Uri candidate, boolean persisted, Uri fallback, boolean fromPicker) {
+        if (validatingOutput) {
+            return;
+        }
+        validatingOutput = true;
+        outputTree = fallback;
+        chooseOutputButton.setEnabled(false);
+        extractButton.setEnabled(false);
+        outputValue.setText("正在验证目录写入权限…");
+        appendLog("正在验证保存目录的创建、写入和删除权限…");
+        worker.execute(() -> {
+            Exception failure = null;
+            try {
+                SafOutputBridge.verifyWritable(this, candidate);
+            } catch (Exception error) {
+                failure = error;
+            }
+            Exception result = failure;
+            runOnUiThread(() -> {
+                validatingOutput = false;
+                chooseOutputButton.setEnabled(!busy);
+                extractButton.setEnabled(!busy);
+                if (result == null) {
+                    outputTree = candidate;
+                    SharedPreferences.Editor editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
+                    if (persisted) {
+                        editor.putString(PREF_OUTPUT_TREE, candidate.toString());
+                    } else {
+                        editor.remove(PREF_OUTPUT_TREE);
+                    }
+                    editor.apply();
+                    outputValue.setText(displayName(candidate));
+                    appendLog("保存目录已获得写入权限：" + outputValue.getText());
+                    if (!persisted) {
+                        appendLog("当前文件管理器只提供本次授权，应用重启后需要重新选择保存目录");
+                    }
+                } else {
+                    outputTree = fallback;
+                    outputValue.setText(fallback == null ? "尚未选择保存目录" : displayName(fallback));
+                    if (fallback == null) {
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(PREF_OUTPUT_TREE).apply();
+                    }
+                    appendLog("保存目录不可写：" + message(result));
+                    String detail = "无法在所选目录创建镜像文件，请重新选择并在系统页面点击“使用此文件夹”或“允许”。\n\n"
+                            + message(result);
+                    if (fromPicker || fallback == null) {
+                        showError(detail);
+                    }
+                }
+            });
+        });
+    }
+
+    private boolean hasPersistedWritePermission(Uri uri) {
+        for (UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
+            if (uri.equals(permission.getUri()) && permission.isWritePermission()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void requestInspection() {
@@ -449,6 +538,10 @@ public final class MainActivity extends Activity {
     private void requestExtraction() {
         if (busy || session == null || partitions.isEmpty()) {
             showError("请先读取固件");
+            return;
+        }
+        if (validatingOutput) {
+            showError("正在验证保存目录，请稍候");
             return;
         }
         List<String> selected = selectedPartitions();
@@ -615,11 +708,11 @@ public final class MainActivity extends Activity {
         readButton.setEnabled(!value);
         clearButton.setEnabled(!value);
         searchEdit.setEnabled(!value);
-        chooseOutputButton.setEnabled(!value);
+        chooseOutputButton.setEnabled(!value && !validatingOutput);
         selectAllButton.setEnabled(!value);
         selectNoneButton.setEnabled(!value);
         threadEdit.setEnabled(!value);
-        extractButton.setEnabled(!value);
+        extractButton.setEnabled(!value && !validatingOutput);
         cancelButton.setEnabled(value);
         partitionAdapter.setEnabled(!value);
         if (value) {
@@ -650,7 +743,12 @@ public final class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         String saved = prefs.getString(PREF_OUTPUT_TREE, "");
         if (!saved.isEmpty()) {
-            outputTree = Uri.parse(saved);
+            Uri restored = Uri.parse(saved);
+            if (hasPersistedWritePermission(restored)) {
+                outputTree = restored;
+            } else {
+                prefs.edit().remove(PREF_OUTPUT_TREE).apply();
+            }
         }
     }
 
