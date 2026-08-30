@@ -159,6 +159,7 @@ def choose_downloads_tree():
             ("Internal storage", "内部存储空间", "内部存储", "Pixel_2")
         )
         if storage is None:
+            save_snapshot("roots")
             raise RuntimeError("目录授权页没有 Downloads 或内部存储根目录")
         tap(storage)
         nodes = dump_ui()
@@ -166,7 +167,7 @@ def choose_downloads_tree():
     select = find_clickable(
         nodes,
         texts=("Use this folder", "USE THIS FOLDER", "Select", "SELECT", "使用此文件夹", "选择"),
-        id_suffixes=("/action_menu_select", "/save"),
+        id_suffixes=("/action_menu_select", "/save", "android:id/button1"),
     )
     if select is None:
         raise RuntimeError("目录授权页没有可用的确认按钮")
@@ -204,6 +205,13 @@ def wait_for_write_confirmation(snapshot):
 
 def main():
     try:
+        for package in (
+            "com.android.externalstorage",
+            "com.android.providers.downloads",
+            "com.android.providers.downloads.ui",
+        ):
+            adb("shell", "pm", "enable", package, check=False)
+        adb("shell", "am", "force-stop", "com.android.documentsui", check=False)
         adb("shell", "mkdir", "-p", "/sdcard/Download")
         click_app_directory_button()
         choose_downloads_tree()

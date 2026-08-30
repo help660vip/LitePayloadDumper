@@ -181,7 +181,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [23, 29]
+        include:
+          - api: 23
+            target: default
+          - api: 29
+            target: google_apis
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -193,7 +197,7 @@ jobs:
         with:
           api-level: ${{ matrix.api }}
           arch: x86_64
-          target: google_apis
+          target: ${{ matrix.target }}
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
