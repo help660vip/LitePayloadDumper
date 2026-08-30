@@ -205,7 +205,10 @@ def click_dialog_text(value, attempts=12):
 
 
 def create_and_select_test_directory(sdk):
-    directory_name = f"LitePayloadDumperTest{sdk}"
+    # Older Android input-text implementations can drop mixed-case characters.
+    # Keep the test name lowercase so the directory we verify is exactly what the
+    # emulator typed into the application's create-directory dialog.
+    directory_name = f"lpdtest{sdk}"
     directory_path = f"/sdcard/Download/{directory_name}"
     exists = adb("shell", "test", "-e", directory_path, check=False)
     if exists.returncode == 0:

@@ -210,7 +210,20 @@ jobs:
             adb shell input keyevent 224 || true
             adb shell wm dismiss-keyguard || true
             adb shell input keyevent 82 || true
-            adb install --no-streaming -r dist/LitePayloadDumper_Android.apk
+            installed=0
+            for attempt in 1 2 3; do
+              adb wait-for-device
+              if adb shell cmd package list packages >/dev/null 2>&1 && \
+                 adb install -r dist/LitePayloadDumper_Android.apk; then
+                installed=1
+                break
+              fi
+              echo "APK install attempt ${attempt} failed; waiting for PackageManager"
+              adb reconnect || true
+              adb wait-for-device
+              sleep 10
+            done
+            test "$installed" = "1"
             adb shell am force-stop com.android.launcher3 || true
             adb shell am start -n com.help660.litepayloaddumper/.MainActivity | tee android-launch.txt
             sleep 2
