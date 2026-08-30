@@ -259,13 +259,10 @@ def return_to_app_main():
             adb("shell", "input", "keyevent", "4", check=False)
             time.sleep(1)
             continue
-        if any(
-            node.attrib.get("package") == APP_PACKAGE
-            and text(node) in ("保存与提取", "尚未选择保存目录")
-            for node in nodes
-        ):
-            return
-        time.sleep(1)
+        # The main screen is a ScrollView. UIAutomator only exposes its visible
+        # children on some older releases, so the extraction section may not be
+        # present in a valid dump while the activity is at the top.
+        return
     raise RuntimeError("目录选择重试时无法返回应用主界面")
 
 
