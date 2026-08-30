@@ -215,14 +215,14 @@ jobs:
             adb shell am start -n com.help660.litepayloaddumper/.MainActivity | tee android-launch.txt
             sleep 2
             python3 .github/scripts/android_storage_smoke.py
-            adb shell am start -n com.help660.litepayloaddumper/.MainActivity
+            adb shell am start -W -n com.help660.litepayloaddumper/.MainActivity
             sleep 2
             adb shell dumpsys activity activities > android-activity.txt
-            adb shell ps > android-processes.txt
             sh .github/scripts/capture_android_ui.sh android-ui.xml
+            adb shell pidof com.help660.litepayloaddumper > android-process-id.txt
             cat android-ui.xml
             grep -q "com.help660.litepayloaddumper/.MainActivity" android-activity.txt
-            grep -q "com.help660.litepayloaddumper" android-processes.txt
+            test -s android-process-id.txt
             grep -q 'package="com.help660.litepayloaddumper"' android-ui.xml
             adb exec-out screencap -p > "android-api-${{ matrix.api }}.png"
       - uses: actions/upload-artifact@v4
@@ -232,7 +232,7 @@ jobs:
           path: |
             android-launch.txt
             android-activity.txt
-            android-processes.txt
+            android-process-id.txt
             android-ui.xml
             android-storage-*.xml
             android-api-${{ matrix.api }}.png
