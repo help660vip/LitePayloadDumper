@@ -187,7 +187,8 @@ def wait_for_app():
         nodes = dump_ui()
         if any(node.attrib.get("package") == APP_PACKAGE for node in nodes):
             return nodes
-        time.sleep(1)
+        adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
+        time.sleep(2)
     raise RuntimeError("授权后没有返回 LitePayloadDumper")
 
 
@@ -216,6 +217,10 @@ def click_dialog_text(value, attempts=12):
 def return_to_app_main():
     for _ in range(8):
         nodes = dump_ui()
+        if not any(node.attrib.get("package") == APP_PACKAGE for node in nodes):
+            adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
+            time.sleep(2)
+            continue
         dialog_action = find_clickable(
             nodes,
             texts=("选择此目录", "新建文件夹", "新建", "确定", "OK"),
