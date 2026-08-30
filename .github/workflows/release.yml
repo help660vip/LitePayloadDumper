@@ -129,7 +129,7 @@ jobs:
           go get -tool golang.org/x/mobile/cmd/gobind@v0.0.0-20260821190718-4776eadac327
           gomobile init
           mkdir -p android/app/libs
-          gomobile bind -target=android -androidapi=23 -trimpath -ldflags="-s -w" -o android/app/libs/mobileapi.aar ./mobileapi
+          gomobile bind -target=android -androidapi=28 -trimpath -ldflags="-s -w" -o android/app/libs/mobileapi.aar ./mobileapi
       - name: Test and build Android application
         shell: bash
         run: |
@@ -143,6 +143,7 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           "$AAPT" dump badging dist/LitePayloadDumper_Android.apk | tee dist/android-badging.txt
           grep -q "package: name='com.help660.litepayloaddumper' versionCode='111' versionName='1.1.1'" dist/android-badging.txt
+          grep -q "sdkVersion:'28'" dist/android-badging.txt
           grep -q "launchable-activity: name='com.help660.litepayloaddumper.MainActivity'" dist/android-badging.txt
           "$APKSIGNER" verify --verbose --print-certs dist/LitePayloadDumper_Android.apk | tee dist/android-signing.txt
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" dist/android-signing.txt
@@ -182,9 +183,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - api: 23
-            target: default
+          - api: 28
+            target: google_apis
           - api: 29
+            target: google_apis
+          - api: 30
+            target: google_apis
+          - api: 35
             target: google_apis
     steps:
       - uses: actions/checkout@v4
@@ -208,18 +213,18 @@ jobs:
             adb install --no-streaming -r dist/LitePayloadDumper_Android.apk
             adb shell am force-stop com.android.launcher3 || true
             adb shell am start -n com.help660.litepayloaddumper/.MainActivity | tee android-launch.txt
-            sleep 5
-            adb shell am force-stop com.android.launcher3 || true
+            sleep 2
+            python3 .github/scripts/android_storage_smoke.py
+            adb shell am start -n com.help660.litepayloaddumper/.MainActivity
+            sleep 2
             adb shell dumpsys activity activities > android-activity.txt
             adb shell ps > android-processes.txt
             adb shell uiautomator dump /data/local/tmp/litepayloaddumper-ui.xml
             adb pull /data/local/tmp/litepayloaddumper-ui.xml android-ui.xml
-            adb exec-out screencap -p > "android-api-${{ matrix.api }}.png"
             cat android-ui.xml
             grep -q "com.help660.litepayloaddumper/.MainActivity" android-activity.txt
             grep -q "com.help660.litepayloaddumper" android-processes.txt
             grep -q 'package="com.help660.litepayloaddumper"' android-ui.xml
-            python3 .github/scripts/android_saf_smoke.py
             adb exec-out screencap -p > "android-api-${{ matrix.api }}.png"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -230,7 +235,7 @@ jobs:
             android-activity.txt
             android-processes.txt
             android-ui.xml
-            android-saf-*.xml
+            android-storage-*.xml
             android-api-${{ matrix.api }}.png
           if-no-files-found: error
 

@@ -1,20 +1,22 @@
 package com.help660.litepayloaddumper;
 
-import android.annotation.SuppressLint;
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.UriPermission;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
-import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.system.Os;
 import android.system.OsConstants;
 import android.text.Editable;
@@ -42,14 +44,13 @@ import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -59,20 +60,21 @@ import mobileapi.Session;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_INPUT = 1001;
-    private static final int REQUEST_OUTPUT = 1002;
+    private static final int REQUEST_MANAGE_STORAGE = 1002;
+    private static final int REQUEST_LEGACY_STORAGE = 1003;
     private static final String PROJECT_URL = "https://github.com/help660vip/LitePayloadDumper";
     private static final String PREFS = "settings";
-    private static final String PREF_OUTPUT_TREE = "output_tree";
+    private static final String PREF_OUTPUT_PATH = "output_path";
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final List<Partition> partitions = new ArrayList<>();
     private final Map<String, Boolean> checks = new HashMap<>();
-    private final Set<String> completedPartitions = Collections.synchronizedSet(new HashSet<>());
     private final TextView[] infoValues = new TextView[8];
 
     private EditText inputEdit;
     private EditText searchEdit;
     private EditText threadEdit;
+    private TextView storagePermissionValue;
     private TextView outputValue;
     private TextView partitionSummary;
     private TextView statusValue;
@@ -81,6 +83,7 @@ public final class MainActivity extends Activity {
     private Button chooseInputButton;
     private Button readButton;
     private Button clearButton;
+    private Button storagePermissionButton;
     private Button chooseOutputButton;
     private Button selectAllButton;
     private Button selectNoneButton;
@@ -91,22 +94,19 @@ public final class MainActivity extends Activity {
     private Uri selectedInput;
     private String selectedInputName = "";
     private ParcelFileDescriptor inputDescriptor;
-    private Uri outputTree;
+    private String outputPath = "";
     private volatile Session session;
-    private volatile SafOutputBridge activeBridge;
     private volatile boolean busy;
     private volatile boolean cancelRequested;
     private boolean validatingOutput;
+    private boolean waitingForStorageSettings;
+    private boolean storageAccessAnnounced;
+    private boolean restoredOutputValidated;
     private String searchQuery = "";
 
     private final Listener nativeListener = event -> {
         try {
             JSONObject json = new JSONObject(event);
-            if ("extraction".equals(json.optString("type"))
-                    && json.optBoolean("partitionDone")
-                    && json.optString("error").isEmpty()) {
-                completedPartitions.add(json.optString("partition"));
-            }
         } catch (JSONException ignored) {
         }
         runOnUiThread(() -> handleNativeEvent(event));
@@ -120,9 +120,10 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
         }
-        restoreOutputTree();
+        restoreOutputPath();
         buildInterface();
-        validateRestoredOutputTree();
+        updateStoragePermissionUi();
+        getWindow().getDecorView().post(this::initializeStorageAccess);
     }
 
     private void buildInterface() {
@@ -214,12 +215,21 @@ public final class MainActivity extends Activity {
 
     private void addExtractionSection(LinearLayout content) {
         content.addView(section("保存与提取"), margin(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 16, 0, 0));
+        LinearLayout permissionRow = horizontal();
+        storagePermissionValue = text("正在检查存储权限…", 13, Color.rgb(60, 60, 60));
+        storagePermissionValue.setGravity(Gravity.CENTER_VERTICAL);
+        permissionRow.addView(storagePermissionValue, new LinearLayout.LayoutParams(0, dp(48), 1));
+        storagePermissionButton = button("授予权限");
+        storagePermissionButton.setOnClickListener(view -> requestStorageAccess());
+        permissionRow.addView(storagePermissionButton, margin(dp(96), dp(48), 8, 0, 0, 0));
+        content.addView(permissionRow);
+
         LinearLayout outputRow = horizontal();
-        outputValue = text(outputTree == null ? "尚未选择保存目录" : displayName(outputTree), 13, Color.rgb(60, 60, 60));
+        outputValue = text(outputPath.isEmpty() ? "尚未选择保存目录" : outputPath, 13, Color.rgb(60, 60, 60));
         outputValue.setGravity(Gravity.CENTER_VERTICAL);
         outputValue.setTextIsSelectable(true);
         outputRow.addView(outputValue, new LinearLayout.LayoutParams(0, dp(48), 1));
-        chooseOutputButton = button("授权目录");
+        chooseOutputButton = button("选择目录");
         chooseOutputButton.setOnClickListener(view -> chooseOutput());
         outputRow.addView(chooseOutputButton, margin(dp(96), dp(48), 8, 0, 0, 0));
         content.addView(outputRow);
@@ -285,123 +295,294 @@ public final class MainActivity extends Activity {
         if (busy || validatingOutput) {
             return;
         }
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        if (!hasStorageAccess()) {
+            showError("请先授予存储访问权限");
+            requestStorageAccess();
+            return;
+        }
         try {
-            startActivityForResult(intent, REQUEST_OUTPUT);
-        } catch (ActivityNotFoundException error) {
-            showError("系统没有可用的目录授权界面");
+            File root = Environment.getExternalStorageDirectory().getCanonicalFile();
+            File start = outputPath.isEmpty()
+                    ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    : new File(outputPath);
+            if (!start.exists() && !start.mkdirs()) {
+                start = root;
+            }
+            showDirectoryPicker(StorageAccess.normalizeWithinRoot(root, start));
+        } catch (Exception error) {
+            showError("无法打开保存目录：" + message(error));
         }
     }
 
     @Override
-    @SuppressLint("WrongConstant")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+        if (requestCode == REQUEST_MANAGE_STORAGE) {
+            waitingForStorageSettings = false;
+            handleStorageAccessResult();
+            return;
+        }
+        if (requestCode != REQUEST_INPUT || resultCode != RESULT_OK
+                || data == null || data.getData() == null) {
             return;
         }
         Uri uri = data.getData();
         int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        if (requestCode == REQUEST_INPUT && flags != 0) {
+        if (flags != 0) {
             try {
                 getContentResolver().takePersistableUriPermission(uri, flags);
             } catch (SecurityException ignored) {
             }
         }
-        if (requestCode == REQUEST_INPUT) {
-            closeCurrentSession();
-            selectedInput = uri;
-            selectedInputName = displayName(uri);
-            inputEdit.setText(selectedInputName);
-            inputEdit.setSelection(inputEdit.length());
-            appendLog("已选择本地固件：" + selectedInputName);
-        } else if (requestCode == REQUEST_OUTPUT) {
-            if ((flags & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == 0) {
-                showError("系统没有授予目录写入权限，请重新选择并点击“使用此文件夹”或“允许”");
-                return;
-            }
-            boolean persisted = false;
-            if ((data.getFlags() & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+        closeCurrentSession();
+        selectedInput = uri;
+        selectedInputName = displayName(uri);
+        inputEdit.setText(selectedInputName);
+        inputEdit.setSelection(inputEdit.length());
+        appendLog("已选择本地固件：" + selectedInputName);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (storagePermissionValue == null) {
+            return;
+        }
+        updateStoragePermissionUi();
+        if (waitingForStorageSettings) {
+            waitingForStorageSettings = false;
+            handleStorageAccessResult();
+        } else if (!hasStorageAccess()) {
+            storageAccessAnnounced = false;
+            restoredOutputValidated = false;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_LEGACY_STORAGE) {
+            handleStorageAccessResult();
+        }
+    }
+
+    private void initializeStorageAccess() {
+        if (hasStorageAccess()) {
+            handleStorageAccessResult();
+        } else {
+            appendLog(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                    ? "需要授予“管理所有文件”权限后才能保存镜像"
+                    : "需要授予存储读写权限后才能保存镜像");
+            requestStorageAccess();
+        }
+    }
+
+    private boolean hasStorageAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void updateStoragePermissionUi() {
+        boolean granted = hasStorageAccess();
+        if (storagePermissionValue != null) {
+            storagePermissionValue.setText(granted
+                    ? (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                    ? "全部文件访问权限已授予" : "存储读写权限已授予")
+                    : (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                    ? "尚未授予全部文件访问权限" : "尚未授予存储读写权限"));
+        }
+        if (storagePermissionButton != null) {
+            storagePermissionButton.setText(granted ? "已授权" : "授予权限");
+            storagePermissionButton.setEnabled(!busy && !granted);
+        }
+        if (chooseOutputButton != null) {
+            chooseOutputButton.setEnabled(!busy && !validatingOutput && granted);
+        }
+        if (extractButton != null) {
+            extractButton.setEnabled(!busy && !validatingOutput && granted);
+        }
+    }
+
+    private void requestStorageAccess() {
+        if (busy) {
+            return;
+        }
+        if (hasStorageAccess()) {
+            handleStorageAccessResult();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            waitingForStorageSettings = true;
+            try {
+                startActivityForResult(intent, REQUEST_MANAGE_STORAGE);
+            } catch (ActivityNotFoundException error) {
                 try {
-                    getContentResolver().takePersistableUriPermission(uri, flags);
-                    persisted = hasPersistedWritePermission(uri);
-                } catch (SecurityException ignored) {
-                    // Some third-party document providers only grant access for the current app session.
+                    startActivityForResult(
+                            new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
+                            REQUEST_MANAGE_STORAGE);
+                } catch (ActivityNotFoundException fallbackError) {
+                    waitingForStorageSettings = false;
+                    showError("系统没有可用的全部文件访问权限设置页面");
                 }
             }
-            validateOutputTree(uri, persisted, outputTree, true);
+        } else {
+            requestPermissions(new String[]{
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }, REQUEST_LEGACY_STORAGE);
         }
     }
 
-    private void validateRestoredOutputTree() {
-        Uri restored = outputTree;
-        if (restored != null) {
-            validateOutputTree(restored, true, null, false);
+    private void handleStorageAccessResult() {
+        boolean granted = hasStorageAccess();
+        updateStoragePermissionUi();
+        if (!granted) {
+            storageAccessAnnounced = false;
+            restoredOutputValidated = false;
+            appendLog("存储权限未授予，当前无法提取镜像");
+            return;
+        }
+        if (!storageAccessAnnounced) {
+            appendLog(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                    ? "全部文件访问权限已授予"
+                    : "存储读写权限已授予");
+            storageAccessAnnounced = true;
+        }
+        validateRestoredOutputPath();
+    }
+
+    private void showDirectoryPicker(File requested) {
+        if (!hasStorageAccess()) {
+            requestStorageAccess();
+            return;
+        }
+        final File root;
+        final File current;
+        try {
+            root = Environment.getExternalStorageDirectory().getCanonicalFile();
+            current = StorageAccess.normalizeWithinRoot(root, requested);
+        } catch (IOException error) {
+            showError(message(error));
+            return;
+        }
+        File[] children = current.listFiles(file -> file.isDirectory());
+        if (children == null) {
+            showError("无法读取目录：" + current.getAbsolutePath());
+            return;
+        }
+        Arrays.sort(children, Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER));
+        boolean hasParent = !current.equals(root);
+        String[] labels = new String[children.length + (hasParent ? 1 : 0)];
+        int offset = 0;
+        if (hasParent) {
+            labels[0] = "返回上级";
+            offset = 1;
+        }
+        for (int index = 0; index < children.length; index++) {
+            labels[index + offset] = children[index].getName();
+        }
+        int childOffset = offset;
+        new AlertDialog.Builder(this)
+                .setTitle("选择保存目录")
+                .setMessage(current.getAbsolutePath())
+                .setItems(labels, (dialog, which) -> {
+                    if (hasParent && which == 0) {
+                        showDirectoryPicker(current.getParentFile());
+                    } else {
+                        showDirectoryPicker(children[which - childOffset]);
+                    }
+                })
+                .setNeutralButton("新建文件夹", (dialog, which) -> promptNewDirectory(root, current))
+                .setNegativeButton("取消", null)
+                .setPositiveButton("选择此目录",
+                        (dialog, which) -> validateOutputPath(current, outputPath, true))
+                .show();
+    }
+
+    private void promptNewDirectory(File root, File parent) {
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setHint("文件夹名称");
+        name.setSelectAllOnFocus(true);
+        new AlertDialog.Builder(this)
+                .setTitle("新建文件夹")
+                .setView(name)
+                .setNegativeButton("取消", (dialog, which) -> showDirectoryPicker(parent))
+                .setPositiveButton("新建", (dialog, which) -> {
+                    try {
+                        File child = StorageAccess.createChildDirectory(root, parent, name.getText().toString());
+                        appendLog("已新建文件夹：" + child.getAbsolutePath());
+                        showDirectoryPicker(child);
+                    } catch (Exception error) {
+                        showError(message(error));
+                        showDirectoryPicker(parent);
+                    }
+                })
+                .show();
+    }
+
+    private void validateRestoredOutputPath() {
+        if (!restoredOutputValidated && !outputPath.isEmpty() && hasStorageAccess()) {
+            restoredOutputValidated = true;
+            validateOutputPath(new File(outputPath), "", false);
         }
     }
 
-    private void validateOutputTree(Uri candidate, boolean persisted, Uri fallback, boolean fromPicker) {
+    private void validateOutputPath(File candidate, String fallback, boolean fromPicker) {
         if (validatingOutput) {
             return;
         }
         validatingOutput = true;
-        outputTree = fallback;
+        outputPath = fallback;
         chooseOutputButton.setEnabled(false);
         extractButton.setEnabled(false);
         outputValue.setText("正在验证目录写入权限…");
-        appendLog("正在验证保存目录的创建、写入和删除权限…");
+        appendLog("正在通过提取核心验证目录的创建、写入和删除权限…");
         worker.execute(() -> {
             Exception failure = null;
+            File resolved = null;
             try {
-                SafOutputBridge.verifyWritable(this, candidate);
+                if (!hasStorageAccess()) {
+                    throw new IOException("全部文件访问权限已经失效");
+                }
+                File root = Environment.getExternalStorageDirectory().getCanonicalFile();
+                resolved = StorageAccess.normalizeWithinRoot(root, candidate);
+                StorageAccess.verifyWritable(resolved);
             } catch (Exception error) {
                 failure = error;
             }
             Exception result = failure;
+            File verified = resolved;
             runOnUiThread(() -> {
                 validatingOutput = false;
-                chooseOutputButton.setEnabled(!busy);
-                extractButton.setEnabled(!busy);
                 if (result == null) {
-                    outputTree = candidate;
-                    SharedPreferences.Editor editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
-                    if (persisted) {
-                        editor.putString(PREF_OUTPUT_TREE, candidate.toString());
-                    } else {
-                        editor.remove(PREF_OUTPUT_TREE);
-                    }
-                    editor.apply();
-                    outputValue.setText(displayName(candidate));
-                    appendLog("保存目录已获得写入权限：" + outputValue.getText());
-                    if (!persisted) {
-                        appendLog("当前文件管理器只提供本次授权，应用重启后需要重新选择保存目录");
-                    }
+                    outputPath = verified.getAbsolutePath();
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putString(PREF_OUTPUT_PATH, outputPath)
+                            .apply();
+                    outputValue.setText(outputPath);
+                    appendLog("保存目录已通过全部文件权限直接写入：" + outputPath);
                 } else {
-                    outputTree = fallback;
-                    outputValue.setText(fallback == null ? "尚未选择保存目录" : displayName(fallback));
-                    if (fallback == null) {
-                        getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(PREF_OUTPUT_TREE).apply();
+                    outputPath = fallback;
+                    outputValue.setText(fallback.isEmpty() ? "尚未选择保存目录" : fallback);
+                    if (fallback.isEmpty()) {
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(PREF_OUTPUT_PATH).apply();
                     }
                     appendLog("保存目录不可写：" + message(result));
-                    String detail = "无法在所选目录创建镜像文件，请重新选择并在系统页面点击“使用此文件夹”或“允许”。\n\n"
-                            + message(result);
-                    if (fromPicker || fallback == null) {
+                    if (fromPicker || fallback.isEmpty()) {
+                        String detail = "无法通过全部文件权限在所选目录创建镜像文件。\n\n"
+                                + message(result);
                         showError(detail);
                     }
                 }
+                updateStoragePermissionUi();
             });
         });
-    }
-
-    private boolean hasPersistedWritePermission(Uri uri) {
-        for (UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
-            if (uri.equals(permission.getUri()) && permission.isWritePermission()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void requestInspection() {
@@ -544,12 +725,17 @@ public final class MainActivity extends Activity {
             showError("正在验证保存目录，请稍候");
             return;
         }
+        if (!hasStorageAccess()) {
+            showError("存储权限已经失效，请重新授予后再提取");
+            requestStorageAccess();
+            return;
+        }
         List<String> selected = selectedPartitions();
         if (selected.isEmpty()) {
             showError("请至少勾选一个要提取的分区");
             return;
         }
-        if (outputTree == null) {
+        if (outputPath.isEmpty()) {
             showError("请选择镜像保存目录");
             return;
         }
@@ -572,34 +758,33 @@ public final class MainActivity extends Activity {
 
     private void extract(List<String> selected, int threads) {
         cancelRequested = false;
-        completedPartitions.clear();
         setBusy(true);
         progress.setProgress(0);
         statusValue.setText("正在准备保存文件…");
         appendLog("开始提取：" + TextUtils.join(", ", selected) + "；线程数：" + threads);
         Session current = session;
+        File destination = new File(outputPath);
         worker.execute(() -> {
-            SafOutputBridge bridge = null;
+            File staging = null;
             boolean success = false;
             try {
-                bridge = SafOutputBridge.create(this, outputTree, selected);
-                activeBridge = bridge;
+                staging = StorageAccess.createStagingDirectory(destination);
                 JSONArray names = new JSONArray();
                 for (String name : selected) {
                     names.put(name);
                 }
-                current.extract(bridge.path(), names.toString(), threads, nativeListener);
+                current.extract(staging.getAbsolutePath(), names.toString(), threads, nativeListener);
+                StorageAccess.commitStaging(destination, staging, selected);
+                staging = null;
                 success = true;
                 runOnUiThread(() -> {
                     progress.setProgress(1000);
-                    statusValue.setText("提取完成，镜像已保存到所选目录");
-                    appendLog("全部完成，镜像已写入所选目录");
+                    statusValue.setText("提取完成，镜像已保存到 " + destination.getAbsolutePath());
+                    appendLog("全部完成，镜像已直接写入：" + destination.getAbsolutePath());
                     Toast.makeText(this, "所选分区已提取完成", Toast.LENGTH_LONG).show();
                 });
             } catch (Exception error) {
-                if (bridge != null) {
-                    bridge.deleteIncomplete(new HashSet<>(completedPartitions));
-                }
+                StorageAccess.discardStaging(destination, staging);
                 runOnUiThread(() -> {
                     if (cancelRequested) {
                         statusValue.setText("任务已取消，未完成镜像已清理");
@@ -611,10 +796,6 @@ public final class MainActivity extends Activity {
                     }
                 });
             } finally {
-                activeBridge = null;
-                if (bridge != null) {
-                    bridge.close();
-                }
                 boolean completed = success;
                 runOnUiThread(() -> {
                     setBusy(false);
@@ -708,11 +889,12 @@ public final class MainActivity extends Activity {
         readButton.setEnabled(!value);
         clearButton.setEnabled(!value);
         searchEdit.setEnabled(!value);
-        chooseOutputButton.setEnabled(!value && !validatingOutput);
+        storagePermissionButton.setEnabled(!value && !hasStorageAccess());
+        chooseOutputButton.setEnabled(!value && !validatingOutput && hasStorageAccess());
         selectAllButton.setEnabled(!value);
         selectNoneButton.setEnabled(!value);
         threadEdit.setEnabled(!value);
-        extractButton.setEnabled(!value && !validatingOutput);
+        extractButton.setEnabled(!value && !validatingOutput && hasStorageAccess());
         cancelButton.setEnabled(value);
         partitionAdapter.setEnabled(!value);
         if (value) {
@@ -739,17 +921,9 @@ public final class MainActivity extends Activity {
         logValue.setText("");
     }
 
-    private void restoreOutputTree() {
+    private void restoreOutputPath() {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String saved = prefs.getString(PREF_OUTPUT_TREE, "");
-        if (!saved.isEmpty()) {
-            Uri restored = Uri.parse(saved);
-            if (hasPersistedWritePermission(restored)) {
-                outputTree = restored;
-            } else {
-                prefs.edit().remove(PREF_OUTPUT_TREE).apply();
-            }
-        }
+        outputPath = prefs.getString(PREF_OUTPUT_PATH, "").trim();
     }
 
     private void closeCurrentSession() {
@@ -779,10 +953,6 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         cancelRequested = true;
         closeCurrentSession();
-        SafOutputBridge bridge = activeBridge;
-        if (bridge != null) {
-            bridge.close();
-        }
         worker.shutdownNow();
         super.onDestroy();
     }
@@ -804,11 +974,10 @@ public final class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         if (name == null || name.trim().isEmpty()) {
-            try {
-                name = DocumentsContract.getTreeDocumentId(uri);
-            } catch (Exception ignored) {
-                name = uri.toString();
-            }
+            name = uri.getLastPathSegment();
+        }
+        if (name == null || name.trim().isEmpty()) {
+            name = uri.toString();
         }
         return name;
     }

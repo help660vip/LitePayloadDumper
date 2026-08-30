@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId "com.help660.litepayloaddumper"
-        minSdk 23
+        minSdk 28
         targetSdk 35
         versionCode 111
         versionName "1.1.1"

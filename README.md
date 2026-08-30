@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/help660vip/LitePayloadDumper?display_name=tag)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
 [![Build](https://github.com/help660vip/LitePayloadDumper/actions/workflows/release.yml/badge.svg)](https://github.com/help660vip/LitePayloadDumper/actions/workflows/release.yml)
 [![Windows](https://img.shields.io/badge/Windows-7%20%7C%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
-[![Android](https://img.shields.io/badge/Android-6.0%2B-3DDC84?logo=android&logoColor=white)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
+[![Android](https://img.shields.io/badge/Android-9.0%2B-3DDC84?logo=android&logoColor=white)](https://github.com/help660vip/LitePayloadDumper/releases/latest)
 [![License](https://img.shields.io/github/license/help660vip/LitePayloadDumper)](LICENSE)
 
 这是一个 Android 固件分区提取工具，可在 Windows 和 Android 上使用。输入本地固件或在线地址，读取分区表后，勾选要导出的镜像即可。
@@ -16,7 +16,7 @@
 | --- | --- |
 | `LitePayloadDumper_Win7.exe` | Windows 7 SP1 64 位 |
 | `LitePayloadDumper_Win10-11.exe` | Windows 10 / 11 64 位 |
-| `LitePayloadDumper_Android.apk` | Android 6.0 及以上 |
+| `LitePayloadDumper_Android.apk` | Android 9.0 及以上 |
 
 Windows 版都是单文件 EXE，不用安装 .NET、Java、Python、VC++ 运行库，也没有需要放在旁边的 DLL。Android 版直接安装 APK。
 
@@ -30,9 +30,11 @@ Windows 版都是单文件 EXE，不用安装 .NET、Java、Python、VC++ 运行
 
 读取成功后，界面会列出机型、设备代号、Android 版本、系统版本、安全补丁日期和构建日期等信息。
 
-Windows 版读取在线地址时，默认保存到系统记录的“下载”文件夹。如果这个文件夹在 C 盘，或者程序无法读取它，则改用 EXE 所在目录。本地固件仍默认保存到固件旁边。Android 版由用户选择固件和保存目录，不申请整个存储空间的访问权限。
+Windows 版读取在线地址时，默认保存到系统记录的“下载”文件夹。如果这个文件夹在 C 盘，或者程序无法读取它，则改用 EXE 所在目录。本地固件仍默认保存到固件旁边。
 
-Android 版点“授权目录”后，在系统页面进入要保存镜像的文件夹，再点“使用此文件夹”或“允许”。这一步就是目录写入授权；返回程序后会立即测试能否创建和删除文件，授权失效时会提示重新选择。
+Android 版第一次打开时会主动申请存储权限。Android 9 / 10 在权限提示中点“允许”；Android 11 及以上会进入“管理所有文件”设置页，打开 LitePayloadDumper 的权限开关后返回程序。这个权限用于读取固件和保存提取出的镜像。
+
+授权完成后点“选择目录”。目录列表默认从系统 Download 文件夹打开，也可以直接新建文件夹。选中后程序会让提取核心实际创建、写入并删除一个测试文件，确认无误才允许开始提取。
 
 ## 能读哪些包
 
@@ -47,7 +49,7 @@ TGZ 不能像 ZIP 那样随机读取单个文件。打开在线 TGZ 时，程序
 
 ## 已知限制
 
-- Windows 版只支持 64 位系统，Windows 7 需要 SP1；Android 版最低支持 Android 6.0。
+- Windows 版只支持 64 位系统，Windows 7 需要 SP1；Android 版最低支持 Android 9.0。
 - 增量 OTA 中依赖旧镜像的分区无法直接还原，请换用完整包。
 - 在线文件所在服务器必须允许 HTTP Range 请求。
 
