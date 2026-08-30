@@ -18,6 +18,15 @@ def adb(*args, check=True):
     )
 
 
+def start_app():
+    adb("shell", "am", "force-stop", APP_PACKAGE, check=False)
+    result = adb(
+        "shell", "am", "start", "-W", "-n", APP_ACTIVITY, check=False
+    )
+    time.sleep(2)
+    return result.returncode == 0
+
+
 def dump_ui(retries=12):
     for _ in range(retries):
         result = adb("shell", "uiautomator", "dump", REMOTE_XML, check=False)
@@ -140,8 +149,7 @@ def grant_storage_permission(sdk):
                 if not saw_settings:
                     raise RuntimeError("应用没有打开“管理所有文件”权限设置页")
                 adb("shell", "input", "keyevent", "4", check=False)
-                adb("shell", "am", "start", "-n", APP_ACTIVITY)
-                time.sleep(2)
+                start_app()
                 return
             nodes = dump_ui()
             if resume_unresponsive_system(nodes):
@@ -166,14 +174,13 @@ def grant_storage_permission(sdk):
                     node.attrib.get("package") == "com.android.settings"
                     for node in nodes
                 ):
-                    adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
+                    start_app()
                 time.sleep(1)
         raise RuntimeError("没有成功授予“管理所有文件”权限")
 
     for _ in range(20):
         if legacy_storage_granted():
-            adb("shell", "am", "start", "-n", APP_ACTIVITY)
-            time.sleep(2)
+            start_app()
             return
         nodes = dump_ui()
         if resume_unresponsive_system(nodes):
@@ -195,7 +202,7 @@ def grant_storage_permission(sdk):
                 "permissioncontroller" in node.attrib.get("package", "")
                 for node in nodes
             ):
-                adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
+                start_app()
             time.sleep(1)
     raise RuntimeError("没有成功授予存储读写权限")
 
@@ -207,8 +214,7 @@ def wait_for_app():
             continue
         if any(node.attrib.get("package") == APP_PACKAGE for node in nodes):
             return nodes
-        adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
-        time.sleep(2)
+        start_app()
     raise RuntimeError("授权后没有返回 LitePayloadDumper")
 
 
@@ -240,8 +246,7 @@ def return_to_app_main():
         if resume_unresponsive_system(nodes):
             continue
         if not any(node.attrib.get("package") == APP_PACKAGE for node in nodes):
-            adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
-            time.sleep(2)
+            start_app()
             continue
         dialog_action = find_clickable(
             nodes,
@@ -355,9 +360,7 @@ def main():
         create_and_select_test_directory(sdk)
         directory_path = wait_for_direct_write("direct-write")
 
-        adb("shell", "am", "force-stop", APP_PACKAGE)
-        adb("shell", "am", "start", "-n", APP_ACTIVITY)
-        time.sleep(2)
+        start_app()
         restored_path = wait_for_direct_write("restored")
         if restored_path != directory_path:
             raise RuntimeError("应用重启后恢复的保存目录发生变化")
