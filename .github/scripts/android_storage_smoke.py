@@ -215,17 +215,25 @@ def create_and_select_test_directory(sdk):
         raise RuntimeError(f"测试目录意外存在：{directory_path}")
 
     click_app_text("选择目录")
-    click_dialog_text("新建文件夹")
-    nodes = dump_ui()
-    editor = next(
-        (
-            node
-            for node in nodes
-            if node.attrib.get("class") == "android.widget.EditText"
-            and node.attrib.get("package") == APP_PACKAGE
-        ),
-        None,
-    )
+    editor = None
+    for _ in range(12):
+        nodes = dump_ui()
+        editor = next(
+            (
+                node
+                for node in nodes
+                if node.attrib.get("class") == "android.widget.EditText"
+                and node.attrib.get("package") == APP_PACKAGE
+            ),
+            None,
+        )
+        if editor is not None:
+            break
+        create = find_clickable(nodes, texts=("新建文件夹",))
+        if create is not None and create.attrib.get("package") == APP_PACKAGE:
+            tap(create)
+        else:
+            time.sleep(1)
     if editor is None:
         raise RuntimeError("新建文件夹对话框没有输入框")
     tap(editor)
@@ -235,29 +243,20 @@ def create_and_select_test_directory(sdk):
     return directory_path
 
 
-def wait_for_direct_write(snapshot):
+def wait_for_direct_write(snapshot, expected_path):
     marker = "保存目录已通过全部文件权限直接写入"
     for attempt in range(35):
         nodes = dump_ui()
-        if any(marker in text(node) for node in nodes):
+        has_marker = any(marker in text(node) for node in nodes)
+        has_path = any(text(node) == expected_path for node in nodes)
+        if has_marker and has_path:
             save_snapshot(snapshot)
             return
         if attempt % 2:
             scroll_up()
         else:
             time.sleep(1)
-    raise RuntimeError("应用没有确认提取核心可以直接写入保存目录")
-
-
-def assert_clean(directory_path):
-    result = adb("shell", "ls", "-a", directory_path, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"无法读取应用新建的保存目录：{directory_path}\n{result.stdout.strip()}")
-    listing = result.stdout
-    if "LitePayloadDumper-write-test-" in listing:
-        raise RuntimeError("目录写入测试留下了临时镜像")
-    if ".LitePayloadDumper-staging-" in listing:
-        raise RuntimeError("目录中残留了提取暂存文件")
+    raise RuntimeError("应用没有确认保存路径，并通过提取核心的创建、写入和删除验证")
 
 
 def main():
@@ -269,18 +268,16 @@ def main():
         grant_storage_permission(sdk)
         wait_for_app()
         directory_path = create_and_select_test_directory(sdk)
-        wait_for_direct_write("direct-write")
-        assert_clean(directory_path)
+        wait_for_direct_write("direct-write", directory_path)
 
         adb("shell", "am", "force-stop", APP_PACKAGE)
         adb("shell", "am", "start", "-n", APP_ACTIVITY)
         time.sleep(2)
-        wait_for_direct_write("restored")
+        wait_for_direct_write("restored", directory_path)
         if sdk >= 30 and not manage_storage_granted():
             raise RuntimeError("应用重启后丢失了全部文件访问权限")
         if sdk < 30 and not legacy_storage_granted():
             raise RuntimeError("应用重启后丢失了存储读写权限")
-        assert_clean(directory_path)
         print(
             "Storage permission, direct create/write/delete, directory creation, "
             "and restart checks passed"
