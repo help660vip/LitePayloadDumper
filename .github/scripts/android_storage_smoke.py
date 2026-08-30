@@ -95,6 +95,19 @@ def find_clickable(nodes, texts=(), id_suffixes=(), descriptions=(), classes=())
     return None
 
 
+def resume_unresponsive_system(nodes):
+    wait = find_clickable(
+        nodes,
+        texts=("Wait", "等待"),
+        id_suffixes=("/aerr_wait",),
+    )
+    if wait is None:
+        return False
+    tap(wait)
+    time.sleep(2)
+    return True
+
+
 def scroll_up():
     size = adb("shell", "wm", "size").stdout
     match = re.search(r"(\d+)x(\d+)", size)
@@ -131,14 +144,7 @@ def grant_storage_permission(sdk):
                 time.sleep(2)
                 return
             nodes = dump_ui()
-            wait = find_clickable(
-                nodes,
-                texts=("Wait", "等待"),
-                id_suffixes=("/aerr_wait",),
-            )
-            if wait is not None:
-                tap(wait)
-                time.sleep(2)
+            if resume_unresponsive_system(nodes):
                 continue
             if any(node.attrib.get("package") == "com.android.settings" for node in nodes):
                 saw_settings = True
@@ -156,6 +162,11 @@ def grant_storage_permission(sdk):
                 save_snapshot("manage-permission")
                 tap(switch)
             else:
+                if not any(
+                    node.attrib.get("package") == "com.android.settings"
+                    for node in nodes
+                ):
+                    adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
                 time.sleep(1)
         raise RuntimeError("没有成功授予“管理所有文件”权限")
 
@@ -165,6 +176,8 @@ def grant_storage_permission(sdk):
             time.sleep(2)
             return
         nodes = dump_ui()
+        if resume_unresponsive_system(nodes):
+            continue
         allow = find_clickable(
             nodes,
             texts=("Allow", "ALLOW", "允许"),
@@ -178,6 +191,11 @@ def grant_storage_permission(sdk):
             save_snapshot("legacy-permission")
             tap(allow)
         else:
+            if not any(
+                "permissioncontroller" in node.attrib.get("package", "")
+                for node in nodes
+            ):
+                adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
             time.sleep(1)
     raise RuntimeError("没有成功授予存储读写权限")
 
@@ -185,6 +203,8 @@ def grant_storage_permission(sdk):
 def wait_for_app():
     for _ in range(20):
         nodes = dump_ui()
+        if resume_unresponsive_system(nodes):
+            continue
         if any(node.attrib.get("package") == APP_PACKAGE for node in nodes):
             return nodes
         adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
@@ -217,6 +237,8 @@ def click_dialog_text(value, attempts=12):
 def return_to_app_main():
     for _ in range(8):
         nodes = dump_ui()
+        if resume_unresponsive_system(nodes):
+            continue
         if not any(node.attrib.get("package") == APP_PACKAGE for node in nodes):
             adb("shell", "am", "start", "-n", APP_ACTIVITY, check=False)
             time.sleep(2)
