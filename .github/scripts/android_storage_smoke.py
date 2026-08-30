@@ -209,7 +209,7 @@ def create_and_select_test_directory(sdk):
     # Keep the test name lowercase so the directory we verify is exactly what the
     # emulator typed into the application's create-directory dialog.
     directory_name = f"lpdtest{sdk}"
-    directory_path = f"/sdcard/Download/{directory_name}"
+    directory_path = f"/storage/emulated/0/Download/{directory_name}"
     exists = adb("shell", "test", "-e", directory_path, check=False)
     if exists.returncode == 0:
         raise RuntimeError(f"测试目录意外存在：{directory_path}")
