@@ -63,15 +63,13 @@ def scroll_up():
     size = adb("shell", "wm", "size").stdout
     match = re.search(r"(\d+)x(\d+)", size)
     width, height = (1080, 1920) if match is None else (int(match.group(1)), int(match.group(2)))
-    adb(
-        "shell", "input", "swipe", str(width // 2), str(height * 3 // 4),
-        str(width // 2), str(height // 4), "300"
-    )
+    x = max(10, width // 50)
+    adb("shell", "input", "swipe", str(x), str(height * 3 // 4), str(x), str(height // 4), "300")
     time.sleep(1)
 
 
 def click_app_directory_button():
-    for _ in range(8):
+    for _ in range(12):
         nodes = dump_ui()
         for node in nodes:
             if node.attrib.get("package") == APP_PACKAGE and text(node) == "授权目录" and clickable(node):
