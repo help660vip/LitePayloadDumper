@@ -265,7 +265,6 @@ def return_to_app_main():
             for node in nodes
         ):
             return
-        adb("shell", "input", "keyevent", "4", check=False)
         time.sleep(1)
     raise RuntimeError("目录选择重试时无法返回应用主界面")
 
