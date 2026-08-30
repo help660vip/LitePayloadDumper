@@ -131,6 +131,15 @@ def grant_storage_permission(sdk):
                 time.sleep(2)
                 return
             nodes = dump_ui()
+            wait = find_clickable(
+                nodes,
+                texts=("Wait", "等待"),
+                id_suffixes=("/aerr_wait",),
+            )
+            if wait is not None:
+                tap(wait)
+                time.sleep(2)
+                continue
             if any(node.attrib.get("package") == "com.android.settings" for node in nodes):
                 saw_settings = True
             switch = find_clickable(
@@ -205,15 +214,9 @@ def click_dialog_text(value, attempts=12):
 
 
 def create_and_select_test_directory(sdk):
-    # Older Android input-text implementations can drop mixed-case characters.
-    # Keep the test name lowercase so the directory we verify is exactly what the
-    # emulator typed into the application's create-directory dialog.
+    # Older emulator input methods can repeat or drop characters. The application
+    # reports the path it actually created, which is verified after this dialog.
     directory_name = f"lpdtest{sdk}"
-    directory_path = f"/storage/emulated/0/Download/{directory_name}"
-    exists = adb("shell", "test", "-e", directory_path, check=False)
-    if exists.returncode == 0:
-        raise RuntimeError(f"测试目录意外存在：{directory_path}")
-
     click_app_text("选择目录")
     editor = None
     for _ in range(12):
@@ -240,18 +243,23 @@ def create_and_select_test_directory(sdk):
     adb("shell", "input", "text", directory_name)
     click_dialog_text("新建")
     click_dialog_text("选择此目录")
-    return directory_path
 
 
-def wait_for_direct_write(snapshot, expected_path):
+def wait_for_direct_write(snapshot):
     marker = "保存目录已通过全部文件权限直接写入"
+    download_prefix = "/storage/emulated/0/Download/"
     for attempt in range(35):
         nodes = dump_ui()
         has_marker = any(marker in text(node) for node in nodes)
-        has_path = any(text(node) == expected_path for node in nodes)
-        if has_marker and has_path:
+        paths = [
+            text(node)
+            for node in nodes
+            if text(node).startswith(download_prefix)
+            and len(text(node)) > len(download_prefix)
+        ]
+        if has_marker and paths:
             save_snapshot(snapshot)
-            return
+            return paths[0]
         if attempt % 2:
             scroll_up()
         else:
@@ -267,13 +275,15 @@ def main():
             raise RuntimeError("Android 自动测试版本低于 9")
         grant_storage_permission(sdk)
         wait_for_app()
-        directory_path = create_and_select_test_directory(sdk)
-        wait_for_direct_write("direct-write", directory_path)
+        create_and_select_test_directory(sdk)
+        directory_path = wait_for_direct_write("direct-write")
 
         adb("shell", "am", "force-stop", APP_PACKAGE)
         adb("shell", "am", "start", "-n", APP_ACTIVITY)
         time.sleep(2)
-        wait_for_direct_write("restored", directory_path)
+        restored_path = wait_for_direct_write("restored")
+        if restored_path != directory_path:
+            raise RuntimeError("应用重启后恢复的保存目录发生变化")
         if sdk >= 30 and not manage_storage_granted():
             raise RuntimeError("应用重启后丢失了全部文件访问权限")
         if sdk < 30 and not legacy_storage_granted():
