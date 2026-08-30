@@ -213,36 +213,86 @@ def click_dialog_text(value, attempts=12):
     raise RuntimeError(f"对话框没有找到“{value}”")
 
 
+def return_to_app_main():
+    for _ in range(8):
+        nodes = dump_ui()
+        dialog_action = find_clickable(
+            nodes,
+            texts=("选择此目录", "新建文件夹", "新建", "确定", "OK"),
+        )
+        if (
+            dialog_action is not None
+            and dialog_action.attrib.get("package") == APP_PACKAGE
+        ):
+            adb("shell", "input", "keyevent", "4", check=False)
+            time.sleep(1)
+            continue
+        if any(
+            node.attrib.get("package") == APP_PACKAGE
+            and text(node) in ("保存与提取", "尚未选择保存目录")
+            for node in nodes
+        ):
+            return
+        adb("shell", "input", "keyevent", "4", check=False)
+        time.sleep(1)
+    raise RuntimeError("目录选择重试时无法返回应用主界面")
+
+
 def create_and_select_test_directory(sdk):
     # Older emulator input methods can repeat or drop characters. The application
     # reports the path it actually created, which is verified after this dialog.
-    directory_name = f"lpdtest{sdk}"
-    click_app_text("选择目录")
-    editor = None
-    for _ in range(12):
-        nodes = dump_ui()
-        editor = next(
-            (
-                node
-                for node in nodes
-                if node.attrib.get("class") == "android.widget.EditText"
-                and node.attrib.get("package") == APP_PACKAGE
-            ),
-            None,
-        )
-        if editor is not None:
-            break
-        create = find_clickable(nodes, texts=("新建文件夹",))
-        if create is not None and create.attrib.get("package") == APP_PACKAGE:
-            tap(create)
-        else:
-            time.sleep(1)
-    if editor is None:
-        raise RuntimeError("新建文件夹对话框没有输入框")
-    tap(editor)
-    adb("shell", "input", "text", directory_name)
-    click_dialog_text("新建")
-    click_dialog_text("选择此目录")
+    directory_name = f"lpd{sdk}"
+    last_error = None
+    for _ in range(3):
+        return_to_app_main()
+        click_app_text("选择目录")
+        editor = None
+        for _ in range(12):
+            nodes = dump_ui()
+            editor = next(
+                (
+                    node
+                    for node in nodes
+                    if node.attrib.get("class") == "android.widget.EditText"
+                    and node.attrib.get("package") == APP_PACKAGE
+                ),
+                None,
+            )
+            if editor is not None:
+                break
+            create = find_clickable(nodes, texts=("新建文件夹",))
+            if create is not None and create.attrib.get("package") == APP_PACKAGE:
+                tap(create)
+            else:
+                time.sleep(1)
+        if editor is None:
+            last_error = RuntimeError("新建文件夹对话框没有输入框")
+            continue
+        tap(editor)
+        for _ in range(3):
+            adb("shell", "input", "text", directory_name)
+            nodes = dump_ui()
+            editor = next(
+                (
+                    node
+                    for node in nodes
+                    if node.attrib.get("class") == "android.widget.EditText"
+                    and node.attrib.get("package") == APP_PACKAGE
+                ),
+                None,
+            )
+            if editor is not None and text(editor):
+                break
+        if editor is None or not text(editor):
+            last_error = RuntimeError("新建文件夹名称没有输入成功")
+            continue
+        click_dialog_text("新建")
+        try:
+            click_dialog_text("选择此目录")
+            return
+        except RuntimeError as error:
+            last_error = error
+    raise last_error or RuntimeError("无法新建并选择测试目录")
 
 
 def wait_for_direct_write(snapshot):

@@ -219,8 +219,7 @@ jobs:
             sleep 2
             adb shell dumpsys activity activities > android-activity.txt
             adb shell ps > android-processes.txt
-            adb shell uiautomator dump /data/local/tmp/litepayloaddumper-ui.xml
-            adb pull /data/local/tmp/litepayloaddumper-ui.xml android-ui.xml
+            sh .github/scripts/capture_android_ui.sh android-ui.xml
             cat android-ui.xml
             grep -q "com.help660.litepayloaddumper/.MainActivity" android-activity.txt
             grep -q "com.help660.litepayloaddumper" android-processes.txt
