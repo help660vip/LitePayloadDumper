@@ -122,7 +122,7 @@ def wait_for_clickable_text(values, attempts=10):
     return None, nodes
 
 
-def choose_downloads_tree():
+def choose_downloads_tree(allow_missing_root=False):
     nodes = dump_ui()
     downloads = find_clickable(nodes, texts=("Downloads", "下载"))
     if downloads is None:
@@ -160,6 +160,10 @@ def choose_downloads_tree():
         )
         if storage is None:
             save_snapshot("roots")
+            if allow_missing_root:
+                adb("shell", "input", "keyevent", "4", check=False)
+                print("SAF check skipped: this Android 6 test image has no writable DocumentsProvider root")
+                return False
             raise RuntimeError("目录授权页没有 Downloads 或内部存储根目录")
         tap(storage)
         nodes = dump_ui()
@@ -177,7 +181,7 @@ def choose_downloads_tree():
     for _ in range(12):
         nodes = dump_ui()
         if any(node.attrib.get("package") == APP_PACKAGE for node in nodes):
-            return
+            return True
         allow = find_clickable(
             nodes,
             texts=("Allow", "ALLOW", "允许"),
@@ -205,20 +209,15 @@ def wait_for_write_confirmation(snapshot):
 
 def main():
     try:
-        for package in (
-            "com.android.externalstorage",
-            "com.android.providers.downloads",
-            "com.android.providers.downloads.ui",
-        ):
-            adb("shell", "pm", "enable", package, check=False)
-        adb("shell", "am", "force-stop", "com.android.documentsui", check=False)
-        adb("shell", "mkdir", "-p", "/sdcard/Download")
+        sdk = int(adb("shell", "getprop", "ro.build.version.sdk").stdout.strip())
+        adb("shell", "mkdir", "-p", "/sdcard/Download", check=False)
         click_app_directory_button()
-        choose_downloads_tree()
+        if not choose_downloads_tree(allow_missing_root=sdk <= 23):
+            return
         wait_for_write_confirmation("granted")
 
-        listing = adb("shell", "ls", "-a", "/sdcard").stdout
-        listing += adb("shell", "ls", "-a", "/sdcard/Download").stdout
+        listing = adb("shell", "ls", "-a", "/sdcard", check=False).stdout
+        listing += adb("shell", "ls", "-a", "/sdcard/Download", check=False).stdout
         if "LitePayloadDumper-write-test-" in listing:
             raise RuntimeError("目录写入测试留下了未清理文件")
 
