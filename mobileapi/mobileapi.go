@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/help660vip/LitePayloadDumper/core"
 )
 
-const appVersion = "1.1.0"
+const appVersion = "1.1.1"
 
 type Listener interface {
 	OnEvent(event string)
@@ -92,6 +93,30 @@ func SetTempDir(path string) error {
 		return fmt.Errorf("无法创建临时目录：%w", err)
 	}
 	return os.Setenv("TMPDIR", path)
+}
+
+func VerifyOutputFile(outputDir, filename string) error {
+	outputDir = strings.TrimSpace(outputDir)
+	filename = strings.TrimSpace(filename)
+	if outputDir == "" {
+		return errors.New("输出目录不能为空")
+	}
+	if filename == "" || strings.ContainsAny(filename, `/\`) {
+		return errors.New("输出文件名无效")
+	}
+	path := filepath.Join(outputDir, filename)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("无法创建输出测试文件：%w", err)
+	}
+	if _, err := file.Write([]byte("LPD")); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("无法写入输出测试文件：%w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("无法关闭输出测试文件：%w", err)
+	}
+	return nil
 }
 
 func NewSession(input, displayName string) *Session {

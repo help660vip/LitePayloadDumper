@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import mobileapi.Mobileapi;
+
 final class SafOutputBridge implements Closeable {
     private final ContentResolver resolver;
     private final File directory;
@@ -59,12 +61,7 @@ final class SafOutputBridge implements Closeable {
         Exception failure = null;
         try {
             bridge = create(context, tree, probes);
-            File probe = new File(bridge.path(), probeName + ".img");
-            try (RandomAccessFile output = new RandomAccessFile(probe, "rw")) {
-                output.setLength(0);
-                output.write(new byte[]{'L', 'P', 'D'});
-                output.getFD().sync();
-            }
+            Mobileapi.verifyOutputFile(bridge.path(), probeName + ".img");
         } catch (SecurityException error) {
             failure = new IOException("目录写入授权无效", error);
         } catch (Exception error) {

@@ -98,3 +98,20 @@ func TestSetTempDir(t *testing.T) {
 		t.Fatalf("temporary directory was not created: %v", err)
 	}
 }
+
+func TestVerifyOutputFile(t *testing.T) {
+	directory := t.TempDir()
+	if err := VerifyOutputFile(directory, "write-test.img"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(directory, "write-test.img"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "LPD" {
+		t.Fatalf("unexpected output probe: %q", content)
+	}
+	if err := VerifyOutputFile(directory, "../outside.img"); err == nil {
+		t.Fatal("expected invalid output filename error")
+	}
+}
