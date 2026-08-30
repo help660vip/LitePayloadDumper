@@ -49,7 +49,7 @@ final class SafOutputBridge implements Closeable {
     }
 
     static void verifyWritable(Context context, Uri tree) throws Exception {
-        if (tree == null || !DocumentsContract.isTreeUri(tree)) {
+        if (tree == null || !"content".equals(tree.getScheme())) {
             throw new IOException("所选位置不是可写目录");
         }
         String probeName = "LitePayloadDumper-write-test-" + UUID.randomUUID();
