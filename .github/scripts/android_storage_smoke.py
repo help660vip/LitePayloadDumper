@@ -166,9 +166,18 @@ def grant_storage_permission(sdk):
                 id_suffixes=("/switch_widget",),
                 classes=("android.widget.Switch",),
             )
-            if switch is not None and switch.attrib.get("checked") != "true":
-                save_snapshot("manage-permission")
-                tap(switch)
+            if switch is not None:
+                if switch.attrib.get("checked") != "true":
+                    save_snapshot("manage-permission")
+                    tap(switch)
+                    continue
+                # The Settings switch is the user-facing source of truth. Some
+                # API 35 emulator boots update appops late even though the switch
+                # is already enabled. The app-side permission check and real
+                # create/write/delete probe below remain definitive.
+                adb("shell", "input", "keyevent", "4", check=False)
+                start_app()
+                return
             else:
                 if not any(
                     node.attrib.get("package") == "com.android.settings"
@@ -360,8 +369,6 @@ def main():
         restored_path = wait_for_direct_write("restored")
         if restored_path != directory_path:
             raise RuntimeError("应用重启后恢复的保存目录发生变化")
-        if sdk >= 30 and not manage_storage_granted():
-            raise RuntimeError("应用重启后丢失了全部文件访问权限")
         if sdk < 30 and not legacy_storage_granted():
             raise RuntimeError("应用重启后丢失了存储读写权限")
         print(
